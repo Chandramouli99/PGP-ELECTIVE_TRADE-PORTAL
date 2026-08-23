@@ -76,10 +76,10 @@ export default function AdminTrading() {
                         {p.drop_courses.map((c) => <span key={c.course_id} className="px-2 py-0.5 rounded-full text-xs bg-red-50 text-red-700 border border-red-200">{c.course_name}</span>)}
                       </div>
                     )}
-                    {p.add_courses.length > 0 && (
+                    {p.add_sections?.length > 0 && (
                       <div className="flex flex-wrap gap-1.5">
                         <span className="text-[11px] uppercase text-emerald-700 font-semibold mr-1">Add:</span>
-                        {p.add_courses.map((c) => <span key={c.course_id} className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700 border border-emerald-200">{c.course_name}</span>)}
+                        {p.add_sections.map((c) => <span key={c.section_id} className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700 border border-emerald-200">{c.course_name} · Sec {c.section_name}</span>)}
                       </div>
                     )}
                     {p.note && <p className="text-sm text-muted-foreground italic">"{p.note}"</p>}

@@ -56,6 +56,9 @@ Secure request-collection & administration system for PGP course Add/Drop, Cours
 - Trading Board redesigned: open cases shown first with a prominent "Create Your Own Case" button; the drop/add course chip editor now opens in a dialog (no longer dominates the page).
 - Verified: iter7 11/11 backend + all frontend surfaces pass, zero issues.
 
+## Update — 2026-08-23 (trading add = section-level)
+- Trading Board "want to add" is now section-level: each option is a course+section chip. Students can list a DIFFERENT section of a course they already hold (enables section-swap discovery); listing their exact current section is rejected. Board/admin views show add entries as "Course · Sec X". Stored as add_section_ids. Verified via API (post + 400 guard) and compile.
+
 ## Update — 2026-08-23 (Term V feature addition)
 - Added 2nd admin email: secy.academics@iiml.ac.in (both admins in allowlist).
 - Term V consolidated .xlsx importer (POST /admin/import/termv): parses "Courses & Sections" (credits/area) + "Students by Section" (students/sections/schedule/enrollments); one-click load, replaces master data. Real data loaded: 453 students, 39 courses, 49 sections, 2663 enrollments.

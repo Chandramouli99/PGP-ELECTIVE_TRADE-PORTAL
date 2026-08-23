@@ -1255,9 +1255,21 @@ def resolve_courses(ids, cmap):
             out.append({"course_id": cid, "course_code": c["course_code"], "course_name": c["course_name"], "credits": c.get("credits")})
     return out
 
+def resolve_sections(ids, cmap, smap):
+    out = []
+    for sid in ids:
+        s = smap.get(sid)
+        if not s:
+            continue
+        c = cmap.get(s["course_id"], {})
+        out.append({"section_id": sid, "course_id": s["course_id"], "course_code": c.get("course_code"),
+                    "course_name": c.get("course_name"), "section_name": s.get("section_name"),
+                    "day": s.get("day"), "time_slot": s.get("time_slot"), "credits": c.get("credits")})
+    return out
+
 class TradingPostInput(BaseModel):
     drop_course_ids: List[str] = []
-    add_course_ids: List[str] = []
+    add_section_ids: List[str] = []
     note: Optional[str] = None
 
 @api_router.get("/trading/board")
@@ -1266,12 +1278,12 @@ async def trading_board(student=Depends(require_student)):
     if not is_open:
         msg = "The trading board is currently closed by the administrator." if not t["enabled"] else w["message"]
         return {"enabled": False, "message": msg, "posts": []}
-    cmap, _ = await build_course_section_maps()
+    cmap, smap = await build_course_section_maps()
     posts = await db.trading_posts.find({"active": True}, {"_id": 0}).sort("updated_at", -1).to_list(5000)
     out = [{
         "post_id": p["post_id"], "pgpid": p["pgpid"], "student_name": p["student_name"],
         "drop_courses": resolve_courses(p.get("drop_course_ids", []), cmap),
-        "add_courses": resolve_courses(p.get("add_course_ids", []), cmap),
+        "add_sections": resolve_sections(p.get("add_section_ids", []), cmap, smap),
         "note": p.get("note"), "updated_at": p["updated_at"], "is_mine": p["pgpid"] == student["pgpid"],
     } for p in posts]
     return {"enabled": True, "message": "", "posts": out}
@@ -1282,7 +1294,7 @@ async def trading_mine(student=Depends(require_student)):
     if not p:
         return {"post": None}
     return {"post": {"post_id": p["post_id"], "drop_course_ids": p.get("drop_course_ids", []),
-                     "add_course_ids": p.get("add_course_ids", []), "note": p.get("note")}}
+                     "add_section_ids": p.get("add_section_ids", []), "note": p.get("note")}}
 
 @api_router.post("/trading/posts")
 async def upsert_trading_post(payload: TradingPostInput, student=Depends(require_student)):
@@ -1290,20 +1302,22 @@ async def upsert_trading_post(payload: TradingPostInput, student=Depends(require
     if not is_open:
         raise HTTPException(status_code=403, detail="The trading board is currently closed.")
     pgpid = student["pgpid"]
-    owned = {e["course_id"] for e in await db.enrollments.find({"pgpid": pgpid}, {"_id": 0}).to_list(1000)}
-    cmap, _ = await build_course_section_maps()
+    enr = await db.enrollments.find({"pgpid": pgpid}, {"_id": 0}).to_list(1000)
+    owned_courses = {e["course_id"] for e in enr}
+    owned_sections = {e["section_id"] for e in enr}
+    cmap, smap = await build_course_section_maps()
     for cid in payload.drop_course_ids:
-        if cid not in owned:
+        if cid not in owned_courses:
             raise HTTPException(status_code=400, detail="Under 'want to drop' you can only list courses you are currently enrolled in.")
-    for cid in payload.add_course_ids:
-        if cid not in cmap or cid in owned:
-            raise HTTPException(status_code=400, detail="Under 'want to add' you can only list courses you don't already have.")
-    if not payload.drop_course_ids and not payload.add_course_ids:
-        raise HTTPException(status_code=400, detail="Add at least one course you want to drop or add.")
+    for sid in payload.add_section_ids:
+        if sid not in smap or sid in owned_sections:
+            raise HTTPException(status_code=400, detail="Under 'want to add' you can only list sections you don't already hold (a different section of a course you have is allowed).")
+    if not payload.drop_course_ids and not payload.add_section_ids:
+        raise HTTPException(status_code=400, detail="Add at least one course to drop or a section to add.")
     now = iso(now_utc())
     existing = await db.trading_posts.find_one({"pgpid": pgpid}, {"_id": 0})
     doc = {"pgpid": pgpid, "student_name": student["name"], "drop_course_ids": payload.drop_course_ids,
-           "add_course_ids": payload.add_course_ids, "note": payload.note, "active": True, "updated_at": now}
+           "add_section_ids": payload.add_section_ids, "note": payload.note, "active": True, "updated_at": now}
     if existing:
         await db.trading_posts.update_one({"pgpid": pgpid}, {"$set": doc})
         post_id = existing["post_id"]
@@ -1325,12 +1339,12 @@ async def delete_trading_post(post_id: str, student=Depends(require_student)):
 @api_router.get("/admin/trading")
 async def admin_trading(admin=Depends(require_admin)):
     t = await get_trading_settings()
-    cmap, _ = await build_course_section_maps()
+    cmap, smap = await build_course_section_maps()
     posts = await db.trading_posts.find({}, {"_id": 0}).sort("updated_at", -1).to_list(5000)
     out = [{
         "post_id": p["post_id"], "pgpid": p["pgpid"], "student_name": p["student_name"],
         "drop_courses": resolve_courses(p.get("drop_course_ids", []), cmap),
-        "add_courses": resolve_courses(p.get("add_course_ids", []), cmap),
+        "add_sections": resolve_sections(p.get("add_section_ids", []), cmap, smap),
         "note": p.get("note"), "updated_at": p["updated_at"],
     } for p in posts]
     w = compute_window_state(await get_window_doc())

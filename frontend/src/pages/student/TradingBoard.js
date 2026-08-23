@@ -33,7 +33,7 @@ export default function TradingBoard() {
     api.get("/trading/mine").then((r) => {
       const p = r.data.post;
       setHasPost(!!p);
-      if (p) { setDropSel(p.drop_course_ids || []); setAddSel(p.add_course_ids || []); setNote(p.note || ""); }
+      if (p) { setDropSel(p.drop_course_ids || []); setAddSel(p.add_section_ids || []); setNote(p.note || ""); }
     });
   };
 
@@ -44,12 +44,15 @@ export default function TradingBoard() {
   }, []);
 
   const toggle = (arr, setArr, id) => setArr(arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]);
-  const notOwned = available.filter((c) => !myCourses.some((mc) => mc.course_id === c.course_id));
+  const ownedSectionIds = new Set(myCourses.map((c) => c.section_id));
+  const addOptions = available.flatMap((c) => (c.sections || [])
+    .filter((s) => !ownedSectionIds.has(s.section_id))
+    .map((s) => ({ section_id: s.section_id, course_code: c.course_code, course_name: c.course_name, section_name: s.section_name, day: s.day, time_slot: s.time_slot, credits: c.credits })));
 
   const save = async () => {
     setSaving(true);
     try {
-      await api.post("/trading/posts", { drop_course_ids: dropSel, add_course_ids: addSel, note });
+      await api.post("/trading/posts", { drop_course_ids: dropSel, add_section_ids: addSel, note });
       toast.success("Your case is live on the trading board");
       setEditorOpen(false);
       loadAll();
@@ -123,10 +126,10 @@ export default function TradingBoard() {
                         <div className="flex flex-wrap gap-1.5">{p.drop_courses.map((c) => <span key={c.course_id} className="px-2 py-0.5 rounded-full text-xs bg-red-50 text-red-700 border border-red-200">{c.course_name}</span>)}</div>
                       </div>
                     )}
-                    {p.add_courses.length > 0 && (
+                    {p.add_sections?.length > 0 && (
                       <div>
                         <p className="text-[11px] uppercase tracking-wide text-emerald-700 font-semibold mb-1">Wants to add</p>
-                        <div className="flex flex-wrap gap-1.5">{p.add_courses.map((c) => <span key={c.course_id} className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700 border border-emerald-200">{c.course_name}</span>)}</div>
+                        <div className="flex flex-wrap gap-1.5">{p.add_sections.map((c) => <span key={c.section_id} className="px-2 py-0.5 rounded-full text-xs bg-emerald-50 text-emerald-700 border border-emerald-200">{c.course_name} · Sec {c.section_name}</span>)}</div>
                       </div>
                     )}
                     {p.note && <p className="text-sm text-muted-foreground italic">"{p.note}"</p>}
@@ -160,11 +163,11 @@ export default function TradingBoard() {
               </div>
             </div>
             <div>
-              <p className="tiny-label mb-2 flex items-center gap-1"><PlusCircle className="h-3.5 w-3.5 text-emerald-600" /> Courses you want to ADD</p>
+              <p className="tiny-label mb-2 flex items-center gap-1"><PlusCircle className="h-3.5 w-3.5 text-emerald-600" /> Sections you want to ADD (any section you don't already hold)</p>
               <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto">
-                {notOwned.map((c) => (
-                  <Chip key={c.course_id} tone="add" active={addSel.includes(c.course_id)} onClick={() => toggle(addSel, setAddSel, c.course_id)} testid={`add-chip-${c.course_code}`}>
-                    {c.course_name} · {cr(c.credits)}cr
+                {addOptions.map((o) => (
+                  <Chip key={o.section_id} tone="add" active={addSel.includes(o.section_id)} onClick={() => toggle(addSel, setAddSel, o.section_id)} testid={`add-chip-${o.course_code}-${o.section_name}`}>
+                    {o.course_name} · Sec {o.section_name} · {cr(o.credits)}cr
                   </Chip>
                 ))}
               </div>
