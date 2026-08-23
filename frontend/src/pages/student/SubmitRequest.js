@@ -1,0 +1,272 @@
+import { useEffect, useState } from "react";
+import Layout from "@/components/Layout";
+import api from "@/lib/api";
+import { useNavigate } from "react-router-dom";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import { PlusCircle, MinusCircle, Repeat, GitCompareArrows, ArrowLeftRight, Loader2, Search } from "lucide-react";
+
+const TYPES = [
+  { id: "ADD", label: "Add a Course", desc: "Add a course without dropping another.", icon: PlusCircle },
+  { id: "DROP", label: "Drop a Course", desc: "Drop one of your existing courses.", icon: MinusCircle },
+  { id: "ADD_DROP", label: "Add + Drop", desc: "Add one course and drop another.", icon: Repeat },
+  { id: "COURSE_SWAP", label: "Course Swap", desc: "Exchange a course with another student.", icon: GitCompareArrows },
+  { id: "SECTION_SWAP", label: "Section Swap", desc: "Swap sections in the same course.", icon: ArrowLeftRight },
+];
+
+export default function SubmitRequest() {
+  const navigate = useNavigate();
+  const [type, setType] = useState(null);
+  const [dashboard, setDashboard] = useState(null);
+  const [available, setAvailable] = useState([]);
+  const [windowOpen, setWindowOpen] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [form, setForm] = useState({});
+  const [partner, setPartner] = useState(null);
+  const [lookupBusy, setLookupBusy] = useState(false);
+
+  useEffect(() => {
+    api.get("/student/dashboard").then((r) => { setDashboard(r.data); setWindowOpen(r.data.window.is_open); });
+    api.get("/student/available-courses").then((r) => setAvailable(r.data));
+  }, []);
+
+  const myCourses = dashboard?.courses || [];
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const sectionsFor = (courseId) => available.find((c) => c.course_id === courseId)?.sections || [];
+
+  const lookupPartner = async () => {
+    if (!form.partner_pgpid) return;
+    setLookupBusy(true);
+    setPartner(null);
+    try {
+      const { data } = await api.get(`/student/lookup-partner`, { params: { pgpid: form.partner_pgpid } });
+      setPartner(data);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Partner not found");
+    } finally {
+      setLookupBusy(false);
+    }
+  };
+
+  const submit = async () => {
+    setSubmitting(true);
+    try {
+      const payload = { request_type: type, comment: form.comment };
+      if (type === "ADD") { payload.add_course_id = form.add_course_id; payload.add_section_id = form.add_section_id; }
+      if (type === "DROP") {
+        const c = myCourses.find((x) => x.course_id === form.drop_course_id);
+        payload.drop_course_id = form.drop_course_id; payload.drop_section_id = c?.section_id;
+      }
+      if (type === "ADD_DROP") {
+        const c = myCourses.find((x) => x.course_id === form.drop_course_id);
+        payload.drop_course_id = form.drop_course_id; payload.drop_section_id = c?.section_id;
+        payload.add_course_id = form.add_course_id; payload.add_section_id = form.add_section_id;
+      }
+      if (type === "COURSE_SWAP") {
+        const mine = myCourses.find((x) => x.course_id === form.give_course_id);
+        const want = partner?.courses.find((x) => x.course_id === form.want_course_id);
+        payload.partner_pgpid = form.partner_pgpid;
+        payload.give_course_id = form.give_course_id; payload.give_section_id = mine?.section_id;
+        payload.want_course_id = form.want_course_id; payload.want_section_id = want?.section_id;
+      }
+      if (type === "SECTION_SWAP") {
+        const mine = myCourses.find((x) => x.course_id === form.swap_course_id);
+        const partnerReg = partner?.courses.find((x) => x.course_id === form.swap_course_id);
+        payload.partner_pgpid = form.partner_pgpid;
+        payload.swap_course_id = form.swap_course_id;
+        payload.my_section_id = mine?.section_id;
+        payload.requested_section_id = partnerReg?.section_id;
+      }
+      await api.post("/student/requests", payload);
+      toast.success("Your request has been submitted successfully.");
+      navigate("/requests");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not submit request");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!windowOpen) {
+    return (
+      <Layout title="Submit a Course Request">
+        <Card className="shadow-sm max-w-2xl">
+          <CardContent className="py-12 text-center">
+            <p className="text-lg font-medium">{dashboard?.window?.message || "Course change requests are currently closed."}</p>
+            <p className="text-muted-foreground text-sm mt-2">You cannot submit new requests outside the active request window.</p>
+          </CardContent>
+        </Card>
+      </Layout>
+    );
+  }
+
+  return (
+    <Layout title="Submit a Course Request">
+      {!type ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl">
+          {TYPES.map((t) => {
+            const Icon = t.icon;
+            return (
+              <button
+                key={t.id}
+                data-testid={`request-type-${t.id}`}
+                onClick={() => { setType(t.id); setForm({}); setPartner(null); }}
+                className="text-left bg-card border rounded-lg p-6 hover:border-primary hover:shadow-sm transition-colors"
+              >
+                <div className="h-11 w-11 rounded-md bg-primary/10 flex items-center justify-center mb-4">
+                  <Icon className="h-5 w-5 text-primary" />
+                </div>
+                <p className="font-semibold text-lg">{t.label}</p>
+                <p className="text-sm text-muted-foreground mt-1">{t.desc}</p>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <Card className="shadow-sm max-w-2xl">
+          <CardHeader>
+            <CardTitle>{TYPES.find((t) => t.id === type).label}</CardTitle>
+            <CardDescription>{TYPES.find((t) => t.id === type).desc}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* ADD */}
+            {(type === "ADD" || type === "ADD_DROP") && (
+              <>
+                {type === "ADD_DROP" && (
+                  <div className="space-y-2">
+                    <Label className="tiny-label">Course to Drop</Label>
+                    <Select onValueChange={(v) => set("drop_course_id", v)}>
+                      <SelectTrigger data-testid="select-drop-course"><SelectValue placeholder="Select a course you're enrolled in" /></SelectTrigger>
+                      <SelectContent>
+                        {myCourses.map((c) => (<SelectItem key={c.course_id} value={c.course_id}>{c.course_name} — Section {c.section_name}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label className="tiny-label">Course to Add</Label>
+                  <Select onValueChange={(v) => { set("add_course_id", v); set("add_section_id", null); }}>
+                    <SelectTrigger data-testid="select-add-course"><SelectValue placeholder="Select a course" /></SelectTrigger>
+                    <SelectContent>
+                      {available.map((c) => (<SelectItem key={c.course_id} value={c.course_id}>{c.course_name}</SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {form.add_course_id && (
+                  <div className="space-y-2">
+                    <Label className="tiny-label">Preferred Section</Label>
+                    <Select onValueChange={(v) => set("add_section_id", v)}>
+                      <SelectTrigger data-testid="select-add-section"><SelectValue placeholder="Select a section" /></SelectTrigger>
+                      <SelectContent>
+                        {sectionsFor(form.add_course_id).map((s) => (<SelectItem key={s.section_id} value={s.section_id}>Section {s.section_name}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* DROP */}
+            {type === "DROP" && (
+              <div className="space-y-2">
+                <Label className="tiny-label">Course to Drop</Label>
+                <Select onValueChange={(v) => set("drop_course_id", v)}>
+                  <SelectTrigger data-testid="select-drop-course"><SelectValue placeholder="Select a course to drop" /></SelectTrigger>
+                  <SelectContent>
+                    {myCourses.map((c) => (<SelectItem key={c.course_id} value={c.course_id}>{c.course_name} — Section {c.section_name}</SelectItem>))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* SWAPS: partner lookup */}
+            {(type === "COURSE_SWAP" || type === "SECTION_SWAP") && (
+              <div className="space-y-2">
+                <Label className="tiny-label">Swap Partner PGPID</Label>
+                <div className="flex gap-2">
+                  <Input
+                    data-testid="input-partner-pgpid"
+                    placeholder="e.g. PGP002"
+                    value={form.partner_pgpid || ""}
+                    onChange={(e) => set("partner_pgpid", e.target.value.toUpperCase())}
+                  />
+                  <Button variant="outline" data-testid="lookup-partner-button" onClick={lookupPartner} disabled={lookupBusy}>
+                    {lookupBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                  </Button>
+                </div>
+                {partner && <p className="text-sm text-emerald-700">Swap partner: <span className="font-medium">{partner.name}</span> ({partner.pgpid})</p>}
+              </div>
+            )}
+
+            {/* COURSE SWAP details */}
+            {type === "COURSE_SWAP" && partner && (
+              <>
+                <div className="space-y-2">
+                  <Label className="tiny-label">Your Course (you are offering)</Label>
+                  <Select onValueChange={(v) => set("give_course_id", v)}>
+                    <SelectTrigger data-testid="select-give-course"><SelectValue placeholder="Select your course to give up" /></SelectTrigger>
+                    <SelectContent>
+                      {myCourses.map((c) => (<SelectItem key={c.course_id} value={c.course_id}>{c.course_name} — Section {c.section_name}</SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="tiny-label">Partner's Course (you want)</Label>
+                  <Select onValueChange={(v) => set("want_course_id", v)}>
+                    <SelectTrigger data-testid="select-want-course"><SelectValue placeholder="Select partner's course you want" /></SelectTrigger>
+                    <SelectContent>
+                      {partner.courses.map((c) => (<SelectItem key={c.course_id} value={c.course_id}>{c.course_name} — Section {c.section_name}</SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
+
+            {/* SECTION SWAP details */}
+            {type === "SECTION_SWAP" && partner && (
+              <div className="space-y-2">
+                <Label className="tiny-label">Course (same course, swap sections)</Label>
+                <Select onValueChange={(v) => set("swap_course_id", v)}>
+                  <SelectTrigger data-testid="select-swap-course"><SelectValue placeholder="Select a shared course" /></SelectTrigger>
+                  <SelectContent>
+                    {myCourses
+                      .filter((mc) => partner.courses.some((pc) => pc.course_id === mc.course_id && pc.section_id !== mc.section_id))
+                      .map((c) => (<SelectItem key={c.course_id} value={c.course_id}>{c.course_name}</SelectItem>))}
+                  </SelectContent>
+                </Select>
+                {form.swap_course_id && (
+                  <div className="rounded-md bg-secondary p-4 text-sm mt-2">
+                    <p>Your section: <span className="font-medium">{myCourses.find((c) => c.course_id === form.swap_course_id)?.section_name}</span></p>
+                    <p>Partner's section (you'll request): <span className="font-medium">{partner.courses.find((c) => c.course_id === form.swap_course_id)?.section_name}</span></p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label className="tiny-label">Reason / Comment (optional)</Label>
+              <Textarea
+                data-testid="input-comment"
+                placeholder="Add any context for the administrator"
+                value={form.comment || ""}
+                onChange={(e) => set("comment", e.target.value)}
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" data-testid="back-button" onClick={() => setType(null)}>Back</Button>
+              <Button data-testid="submit-request-button" onClick={submit} disabled={submitting} className="bg-primary hover:bg-primary/90">
+                {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Submit Request
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </Layout>
+  );
+}

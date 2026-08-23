@@ -1,0 +1,95 @@
+{
+  "theme": "light",
+  "typography": {
+    "font_families": {
+      "headings": "'Cormorant Garamond', serif",
+      "body": "'IBM Plex Sans', sans-serif"
+    },
+    "scale": {
+      "h1": "text-4xl sm:text-5xl tracking-tight leading-none",
+      "h2": "text-2xl sm:text-3xl tracking-tight",
+      "h3": "text-xl sm:text-2xl",
+      "h4": "text-lg sm:text-xl font-medium",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm text-slate-600",
+      "tiny_label": "text-xs tracking-[0.1em] uppercase font-bold"
+    },
+    "rules": "Use Cormorant Garamond for headings for a prestigious academic feel. Use IBM Plex Sans for tables, UI, and body. Do not use generic fonts like Inter for headings."
+  },
+  "colors": {
+    "palette": {
+      "primary": "#0A192F",
+      "secondary": "#F0F4F8",
+      "accent": "#D97706",
+      "background": "#F8FAFC",
+      "surface": "#FFFFFF",
+      "border": "#E2E8F0",
+      "text": "#0F172A"
+    },
+    "rules": "Use deep academic navy (#0A192F) for primary actions and sidebar backgrounds. Surfaces are pure white (#FFFFFF). Background is tinted grey (#F8FAFC). Never use pure black or teal green."
+  },
+  "visual_enhancers": {
+    "borders": "1px solid #E2E8F0. Subtle rounded corners (rounded-md).",
+    "shadows": "Minimalist. Use shadow-sm on cards. Avoid heavy or floating shadows.",
+    "surfaces": "Use flat solid surfaces. No glassmorphism as this is a high-trust, data-heavy academic portal. CRITICAL: DO NOT use complete transparent background in header, overlays, dropdowns, or any surface that has content under it."
+  },
+  "component_name": [
+    "Button",
+    "Table",
+    "Card",
+    "Form",
+    "Input",
+    "Select",
+    "Tabs",
+    "Dialog",
+    "Toast"
+  ],
+  "grids": {
+    "admin_dashboard": "grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 (High Density Grid for data widgets)",
+    "student_dashboard": "grid-cols-1 md:grid-cols-3 gap-8 (Bento Layout for self-service forms)"
+  },
+  "layouts": {
+    "spacing": "Generous spacing (p-8, p-12) for Student forms. Dense and compact spacing (p-4, p-6) for Admin data tables.",
+    "alignment": "Left-align dense content and tables. Center-align only if it improves visual hierarchy. Do not global center align."
+  },
+  "motion": {
+    "rules": "Minimalist animations. Use micro-interactions for hover states (e.g., background shifts). Smooth entrance transitions for dialogs. DO NOT apply universal transition (e.g. transition: all)."
+  },
+  "accessibility": {
+    "rules": "Maintain high contrast for text. Ensure focus states are distinct (e.g., focus:ring-2 focus:ring-primary). Use semantic HTML. Ensure all interactive and key elements include a `data-testid` attribute (e.g., data-testid='submit-request-button')."
+  },
+  "media": {
+    "image_urls": [
+      {
+        "url": "https://images.pexels.com/photos/37423357/pexels-photo-37423357.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Historic library interior architecture.",
+        "category": "login_background"
+      }
+    ],
+    "icons": "Use @phosphor-icons/react (yarn add @phosphor-icons/react) for a high-end academic feel."
+  },
+  "3d_libraries": {
+    "decision": "Not required",
+    "rules": "This is a functional administration portal. Focus on 2D data clarity via Recharts rather than 3D immersion."
+  },
+  "component_path": "/app/frontend/src/components/ui",
+  "instructions_to_main_agent": [
+    "All components and files MUST be written as .js files, NOT .tsx files. Follow vanilla React + JavaScript guidelines.",
+    "Build the Google Auth login page using the provided library background image with a dark overlay (bg-slate-900/80) to contrast the login card.",
+    "Build two distinct layouts with role-based navigation: Admin Dashboard (data-heavy) and Student Portal (self-service forms).",
+    "Admin Dashboard: Include overview stat cards, global request tables, and master data upload forms.",
+    "Student Portal: Build 'Submit Course Request' (Add, Drop, Swap) flows and My Requests timeline.",
+    "CRITICAL BUSINESS LOGIC: Ensure the 'Student Dashboard' explicitly HIDES all section capacity data. The Admin Dashboard must be the ONLY place capacity data is visible.",
+    "Use standard Shadcn UI logic but customize the styling to match the 'Old Money Tech / Academic' minimal aesthetic (flat borders, no heavy shadows).",
+    "Use `sonner` for all in-app notifications (accept/reject swaps, errors, success).",
+    "Use Recharts for Admin dashboard visualizations (Total students/courses/sections)."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Do not output generic 'AI slop'. Prioritize distinct, premium frontend execution.",
+    "Do not apply global text-align center (`.App { text-align: center; }`).",
+    "Do not use `transition: all`.",
+    "Always use `data-testid` on buttons, inputs, and key UI markers for robust testing.",
+    "Never use placeholder image URLs (via.placeholder, dummyimage, etc.). Use the provided image URL.",
+    "Ensure layered design elements have proper z-index hierarchy and no transparent background collisions."
+  ]
+}
