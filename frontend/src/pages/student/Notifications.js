@@ -14,7 +14,9 @@ export default function Notifications() {
     api.get("/student/notifications").then((r) => setNotes(r.data));
     api.get("/student/pending-swaps").then((r) => setSwaps(r.data));
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    api.post("/student/notifications/read-all").finally(load);
+  }, []);
 
   const respond = async (id, action) => {
     try {

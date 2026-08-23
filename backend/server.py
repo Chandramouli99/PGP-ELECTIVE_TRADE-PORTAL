@@ -225,12 +225,18 @@ class WindowInput(BaseModel):
 
 @api_router.put("/admin/window")
 async def update_window(payload: WindowInput, admin=Depends(require_admin)):
+    closes_at = payload.closes_at
+    if payload.enabled and not closes_at:
+        base = datetime.fromisoformat(payload.opens_at) if payload.opens_at else now_utc()
+        if base.tzinfo is None:
+            base = base.replace(tzinfo=timezone.utc)
+        closes_at = iso(base + timedelta(hours=24))
     await db.settings.update_one({"key": "request_window"}, {"$set": {
         "enabled": payload.enabled,
         "opens_at": payload.opens_at,
-        "closes_at": payload.closes_at,
+        "closes_at": closes_at,
     }}, upsert=True)
-    await audit("WINDOW_UPDATE", admin.get("email"), f"enabled={payload.enabled} opens={payload.opens_at} closes={payload.closes_at}")
+    await audit("WINDOW_UPDATE", admin.get("email"), f"enabled={payload.enabled} opens={payload.opens_at} closes={closes_at}")
     doc = await get_window_doc()
     return {**compute_window_state(doc), "opens_at": doc.get("opens_at"), "closes_at": doc.get("closes_at"), "enabled": doc.get("enabled")}
 
@@ -393,6 +399,7 @@ def new_request_base(student, request_type, comment):
         "admin_comment": None,
         "actions": [],
         "swap": None,
+        "credit_note": None,
         "created_at": iso(now_utc()),
         "updated_at": iso(now_utc()),
         "history": [],
@@ -410,6 +417,23 @@ async def check_conflicts(pgpid, course_ids: set):
         cmap, _ = await build_course_section_maps()
         names = [cmap.get(cid, {}).get("course_name", cid) for cid in clash]
         raise HTTPException(status_code=409, detail=f"You already have an active request involving: {', '.join(names)}. Please cancel it before submitting a conflicting request.")
+
+async def compute_credit_note(pgpid, cmap, add_course_id=None, drop_course_id=None):
+    enrolls = await db.enrollments.find({"pgpid": pgpid}, {"_id": 0}).to_list(1000)
+    current = sum((cmap.get(e["course_id"], {}).get("credits") or 0) for e in enrolls)
+    projected = current
+    if drop_course_id:
+        projected -= (cmap.get(drop_course_id, {}).get("credits") or 0)
+    if add_course_id:
+        projected += (cmap.get(add_course_id, {}).get("credits") or 0)
+    projected = round(projected, 1)
+    master = await db.students.find_one({"pgpid": pgpid}, {"_id": 0}) or {}
+    if master.get("program", "PGP") == "PGP" and not master.get("stex", False):
+        if projected > TERM_V_MAX_CREDITS:
+            return f"Projected {projected} credits — above the Term V maximum of {TERM_V_MAX_CREDITS}."
+        if projected < TERM_V_MIN_CREDITS:
+            return f"Projected {projected} credits — below the Term V minimum of {TERM_V_MIN_CREDITS}."
+    return None
 
 @api_router.post("/student/requests")
 async def submit_request(payload: RequestInput, student=Depends(require_student)):
@@ -477,6 +501,13 @@ async def submit_request(payload: RequestInput, student=Depends(require_student)
                 raise HTTPException(status_code=400, detail="Swap partner is not enrolled in the course you want.")
             if payload.give_course_id == payload.want_course_id:
                 raise HTTPException(status_code=400, detail="Course swap must involve two different courses.")
+            already = await db.enrollments.find_one({"pgpid": pgpid, "course_id": payload.want_course_id}, {"_id": 0})
+            if already:
+                raise HTTPException(status_code=400, detail="You already have that course — you cannot request it in a swap.")
+            give_credits = cmap.get(payload.give_course_id, {}).get("credits")
+            want_credits = cmap.get(payload.want_course_id, {}).get("credits")
+            if give_credits is not None and want_credits is not None and give_credits != want_credits:
+                raise HTTPException(status_code=400, detail=f"Cross-credit swaps are not allowed — you are offering a {give_credits}-credit course but requesting a {want_credits}-credit course.")
             await check_conflicts(pgpid, {payload.give_course_id, payload.want_course_id})
             req["swap"] = {
                 "kind": "COURSE",
@@ -530,6 +561,13 @@ async def submit_request(payload: RequestInput, student=Depends(require_student)
             "created_at": iso(now_utc()),
         })
 
+    if rtype in ("ADD", "DROP", "ADD_DROP"):
+        req["credit_note"] = await compute_credit_note(
+            pgpid, cmap,
+            add_course_id=payload.add_course_id if rtype in ("ADD", "ADD_DROP") else None,
+            drop_course_id=payload.drop_course_id if rtype in ("DROP", "ADD_DROP") else None,
+        )
+
     await db.requests.insert_one({**req})
     await audit("SUBMIT", pgpid, f"submitted {rtype}", req["request_id"])
     req.pop("_id", None)
@@ -575,6 +613,16 @@ async def notifications(student=Depends(require_student)):
 @api_router.post("/student/notifications/{notification_id}/read")
 async def mark_read(notification_id: str, student=Depends(require_student)):
     await db.notifications.update_one({"notification_id": notification_id, "pgpid": student["pgpid"]}, {"$set": {"read": True}})
+    return {"ok": True}
+
+@api_router.get("/student/notifications/unread-count")
+async def unread_count(student=Depends(require_student)):
+    c = await db.notifications.count_documents({"pgpid": student["pgpid"], "read": False})
+    return {"count": c}
+
+@api_router.post("/student/notifications/read-all")
+async def read_all(student=Depends(require_student)):
+    await db.notifications.update_many({"pgpid": student["pgpid"], "read": False}, {"$set": {"read": True}})
     return {"ok": True}
 
 @api_router.get("/student/pending-swaps")

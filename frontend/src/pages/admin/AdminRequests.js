@@ -130,6 +130,7 @@ export default function AdminRequests() {
                     <p>Partner confirmation: <span className="font-medium">{selected.swap.partner_confirmed===true?"Accepted":selected.swap.partner_confirmed===false?"Rejected":"Pending"}</span></p>
                   </div>
                 )}
+                {selected.credit_note && <p className="text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 text-xs" data-testid="admin-credit-note">⚠ {selected.credit_note}</p>}
                 {selected.comment && <p><span className="text-muted-foreground">Comment:</span> {selected.comment}</p>}
                 <div className="pt-1"><StatusBadge status={selected.status} /></div>
                 {isSwap && selected.status !== "BOTH_CONFIRMED" && selected.status !== "APPROVED_PENDING_EXECUTION" && selected.status !== "EXECUTED" && (

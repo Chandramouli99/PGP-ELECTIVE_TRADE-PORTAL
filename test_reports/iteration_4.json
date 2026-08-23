@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 4: verified swap sanity (already-owned + cross-credit), non-blocking credit warnings, window default 24h, notification counters, mobile hamburger drawer, notification badge, countdown chip, submit-page ordering, want-course same-credit/not-owned filter, and admin window quick actions. Backend: new suite /app/backend/tests/test_termv_iter4.py = 8/8 PASS. Existing test_rbac_bugfix.py = 27/27 PASS. test_termv_features.py = 12/13 PASS (only test_totals failed with 454 vs 453 students — pure data drift, not a regression from this iteration). Frontend: all 8 UI scenarios verified end-to-end against the preview URL.",
+  "backend_issues": {"critical": [], "minor": [
+    {"endpoint": "GET /api/admin/dashboard", "issue": "total_students=454 now (test_termv_features.py::test_totals expects 453 — one extra student doc drifted in). Not caused by iter 4 changes; update the constant or seed to keep test green."}
+  ]},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_termv_iter4.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [
+    "(minor) Bump total_students expectation in test_termv_features.py::TestDashboardTotals.test_totals from 453 to 454, or delete the stray student doc (data-only drift).",
+    "(nit) Sidebar SheetContent still triggers React 'Missing Description or aria-describedby={undefined} for DialogContent' warning — add a Description to the Sheet for a11y."
+  ],
+  "critical_code_review_comments": [
+    "Swap sanity checks are correctly enforced in server.py (lines 504-510): already-owned want triggers 400; cross-credit mismatch triggers 400 with course-level credit comparison — good.",
+    "compute_credit_note() (lines 421-436) correctly restricts the warning to program=='PGP' && not stex, matching TERM_V_MIN=5.0 / MAX=6.0 constants. Non-blocking behavior verified — req is inserted regardless of warning.",
+    "update_window (line 226-241) defaults closes_at=now+24h only when payload.enabled && !closes_at — verified test now shows delta_h in (23.5, 24.5).",
+    "Frontend want-course filter in SubmitRequest.js (lines 116-120) filters by (a) not-owned and (b) same-credits as give course — verified in DOM: all 3 candidate courses returned for PGP41473 partner were 1.0-cr and non-overlapping with the initiator's set.",
+    "Layout.js CountdownChip is hidden below sm — that's intentional (`hidden sm:flex`) but note that on very small phones (<640px) the student loses the countdown; consider surfacing a compact chip in the mobile Sheet header if PM cares.",
+    "server.py is 1134 lines — prior recommendation to modularize still stands (feasibility, notifications, swap routes could each be their own router)."
+  ],
+  "updated_files": ["/app/backend/tests/test_termv_iter4.py"],
+  "success_rate": {"backend": "100% (8/8 new; 39/40 combined including one pre-existing data drift)", "frontend": "100% of 8 UI scenarios"},
+  "test_credentials": "Bearer stu_real / stu_pgp41473 (students); Bearer admintest_session (admin). Frontend uses localStorage.session_token — set before navigation.",
+  "seed_data_creation": "Tests create and immediately cancel/delete their own requests. Verified DB is clean after run: manually purged 1 leftover UI-test swap + 5 partner notifications generated during retest.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_termv_iter4.py -v -n 0. Frontend testids used: request-type-{TYPE}, credit-warning, credit-confirm-dialog, credit-confirm-submit, credit-confirm-cancel, select-give-course, select-want-course, mobile-menu-button, notification-badge, window-countdown, open-24h-button, extend-12h-button, extend-24h-button, close-now-button, admin-window-remaining. Sheet drawer + fixed sidebar both share nav-* testids; when checking mobile drawer contents, scope selector to [role='dialog'] to avoid Playwright strict-mode duplicate hits.",
+  "rca of the issue": "N/A — no critical bugs found this iteration."
+}

@@ -29,8 +29,14 @@ Secure request-collection & administration system for PGP course Add/Drop, Cours
 - P1: Email notifications (Resend) for swaps; in-app notification bell badge/count.
 - P2: Built-in global feasibility engine (read-only, no auto-execute); capacity visualization charts; admin "revoke approval" endpoint; re-validate import on commit; split server.py into modules; tighten CORS to explicit origins.
 
-## Next Tasks
-- Await user feedback; consider real full Google OAuth walkthrough.
+## Update — 2026-08-23 (UX + rules iteration)
+- Submit page reordered: Course Swap & Section Swap shown first, then Add / Drop / Add+Drop.
+- Swap sanity (server-enforced): cannot request a course you already have; no cross-credit swaps (1.0↔1.0, 0.5↔0.5 only). Frontend want-course dropdown filters to same-credit, not-owned courses.
+- Non-blocking credit warnings (PGP non-STEX, 5.0–6.0): Add/Add+Drop above 6 or Drop/Add+Drop below 5 shows an inline warning + confirm dialog ("Submit Anyway"); request still submits with a credit_note visible to admin.
+- Mobile-friendly Layout: sidebar collapses to a hamburger Sheet drawer on <lg; desktop keeps fixed sidebar.
+- Notifications: red unread-count badge on nav (30s poll); opening Notifications marks all read.
+- Request window: default 24h when enabled with no closing time; admin Quick Actions (Open 24h / Extend +12h / +24h / Close now); student header + admin page show live countdown.
+- Verified: iter4 8/8 + RBAC 27/27 + 8/8 frontend scenarios pass.
 
 ## Update — 2026-08-23 (Term V feature addition)
 - Added 2nd admin email: secy.academics@iiml.ac.in (both admins in allowlist).
