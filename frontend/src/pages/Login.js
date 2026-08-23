@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { ArrowLeftRight, ShieldCheck, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { SupportContact } from "@/components/SupportContact";
 
 const BG = "https://images.pexels.com/photos/37423357/pexels-photo-37423357.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940";
 
@@ -63,6 +64,9 @@ export default function Login() {
           <p className="text-xs text-muted-foreground mt-6 text-center">
             Only <span className="font-medium">@iim.ac.in</span> / <span className="font-medium">@iiml.ac.in</span> accounts are permitted.
           </p>
+          <div className="mt-5 pt-4 border-t">
+            <SupportContact />
+          </div>
         </div>
       </div>
     </div>

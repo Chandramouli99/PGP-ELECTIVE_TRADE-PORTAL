@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import api from "@/lib/api";
+import { SupportContact } from "@/components/SupportContact";
 import {
   LayoutDashboard, FilePlus2, ListChecks, Bell, User, LogOut,
   Inbox, ArrowLeftRight, Users, GraduationCap, Layers, Gauge,
@@ -152,6 +153,9 @@ export default function Layout({ children, title }) {
           {user?.role === "student" && <CountdownChip />}
         </header>
         <div className="p-4 lg:p-8 max-w-[1400px]">{children}</div>
+        <footer className="px-4 lg:px-8 pb-6 pt-2 max-w-[1400px] border-t mt-4">
+          <SupportContact className="justify-start pt-4" />
+        </footer>
       </main>
     </div>
   );
