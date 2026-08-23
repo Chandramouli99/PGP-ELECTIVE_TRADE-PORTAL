@@ -5,7 +5,7 @@ export const SUPPORT = {
   name: "Chandramouli",
   role: "Academic Secretary",
   phone: "9490848306",
-  email: "pgp41473@iiml.ac.in",
+  email: "secy.academics@iiml.ac.in",
 };
 
 export function SupportContact({ className = "" }) {
