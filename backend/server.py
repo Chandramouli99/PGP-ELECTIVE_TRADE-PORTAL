@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------
 # Constants
 # ------------------------------------------------------------------
-ADMIN_EMAILS = {"pgp41473@iiml.ac.in", "secy.academics@iiml.ac.in"}
+ADMIN_EMAILS = {"secy.academics@iiml.ac.in"}
 ALLOWED_DOMAINS = {"iim.ac.in", "iiml.ac.in"}
 TERM_V_MIN_CREDITS = 5.0
 TERM_V_MAX_CREDITS = 6.0

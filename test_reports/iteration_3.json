@@ -1,0 +1,26 @@
+{
+  "summary": "RBAC bug-fix verification. Confirmed ADMIN_EMAILS = {secy.academics@iiml.ac.in} only. Backend: new pytest suite /app/backend/tests/test_rbac_bugfix.py = 27/27 PASS. Both student tokens (stu_pgp41473 & stu_real) return role=student on /auth/me and receive 403 on all 7 admin GET endpoints (dashboard/requests/capacity/feasibility/students/audit/export) plus PUT /admin/window, PUT /admin/sections/{id}, POST /admin/import/termv. admintest_session returns role=admin and /admin/dashboard 200. Regression: student dashboard returns 6 courses for PGP41473, timetable 200, my-requests 200. Frontend: as stu_pgp41473 the app lands on /dashboard with STUDENT-only sidebar (Dashboard, Timetable, Submit Request, My Requests, Notifications, Profile) — zero admin items leaked. Dashboard shows 'Welcome, Chandramouli Dharmana', PGPID PGP41473, Term V Credits card '5 / 5-6', 6-row Current Courses table (Section/Area/Schedule/Credits, NO capacity/strength). Timetable page renders weekly grid via [data-testid=timetable-grid]. Direct navigation to /admin and /admin/feasibility as student redirects to /dashboard. As admintest_session app lands on /admin with full admin sidebar including Feasibility.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_rbac_bugfix.py",
+    "/app/test_reports/pytest/rbac_results.xml",
+    "/app/test_reports/student_dashboard.png",
+    "/app/test_reports/student_timetable.png",
+    "/app/test_reports/admin_dashboard.png"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Fix is minimal and correct: ADMIN_EMAILS restricted to a single dedicated admin email; role is recomputed on every /auth/session call (line 124-125) so any future removal of an email from ADMIN_EMAILS demotes existing user docs on next login — good.",
+    "Consider persisting admin emails in a config collection or env var (e.g. ADMIN_EMAILS from backend/.env) instead of a hardcoded set in server.py, so ops can rotate admins without a code change.",
+    "server.py is still 1086 lines — prior recommendation to split into modules stands (not related to this bug)."
+  ],
+  "updated_files": ["/app/backend/tests/test_rbac_bugfix.py"],
+  "success_rate": {"backend": "100% (27/27)", "frontend": "100% of RBAC scenarios verified"},
+  "test_credentials": "Bearer stu_pgp41473 / stu_real (students), Bearer admintest_session (admin). All three sessions present in Mongo user_sessions.",
+  "seed_data_creation": "None. No state mutation performed.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_rbac_bugfix.py -v -n 0. Combined with existing test_termv_features.py (13/13) both suites are green. Frontend student view screenshots saved under /app/test_reports/student_*.png; admin view under admin_dashboard.png.",
+  "rca of the issue": "Original bug: pgp41473@iiml.ac.in (real student DHARMANA CHANDRAMOULI, PGP41473) had been added to the ADMIN_EMAILS allowlist for admin testing. On login, create_session() computed role='admin' because email was in the set, and Layout.js then rendered the ADMIN_NAV. Fix (already applied by main agent): ADMIN_EMAILS = {'secy.academics@iiml.ac.in'} only; pgp41473 user doc converted back to role=student and given the correct PGPID; a separate admintest_session was created for secy.academics. Because role is recomputed on every /auth/session request, and require_admin/require_student enforce role server-side on every route, verification is now clean at both API and UI layers."
+}
