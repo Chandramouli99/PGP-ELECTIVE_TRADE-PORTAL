@@ -13,6 +13,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
 import httpx
 import pandas as pd
+import openpyxl
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -30,8 +31,10 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------
 # Constants
 # ------------------------------------------------------------------
-ADMIN_EMAILS = {"pgp41473@iiml.ac.in"}
+ADMIN_EMAILS = {"pgp41473@iiml.ac.in", "secy.academics@iiml.ac.in"}
 ALLOWED_DOMAINS = {"iim.ac.in", "iiml.ac.in"}
+TERM_V_MIN_CREDITS = 5.0
+TERM_V_MAX_CREDITS = 6.0
 EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
 
 REQUEST_TYPES = {"ADD", "DROP", "ADD_DROP", "COURSE_SWAP", "SECTION_SWAP"}
@@ -249,7 +252,12 @@ async def enrich_enrollment(e, cmap, smap):
         "section_id": e["section_id"],
         "course_code": c.get("course_code"),
         "course_name": c.get("course_name"),
+        "credits": c.get("credits"),
+        "area": c.get("area"),
         "section_name": s.get("section_name"),
+        "day": s.get("day"),
+        "time_slot": s.get("time_slot"),
+        "mid_tag": s.get("mid_tag"),
     }
 
 # ------------------------------------------------------------------
@@ -261,27 +269,62 @@ async def student_dashboard(student=Depends(require_student)):
     cmap, smap = await build_course_section_maps()
     enrolls = await db.enrollments.find({"pgpid": pgpid}, {"_id": 0}).to_list(1000)
     courses = [await enrich_enrollment(e, cmap, smap) for e in enrolls]
+    total_credits = round(sum((c.get("credits") or 0) for c in courses), 1)
+    master = await db.students.find_one({"pgpid": pgpid}, {"_id": 0}) or {}
+    program = master.get("program", "PGP")
+    stex = bool(master.get("stex", False))
+    rule_applies = (program == "PGP") and not stex
+    credit_status = "ok"
+    credit_message = f"Your total Term V credits: {total_credits}"
+    if rule_applies:
+        if total_credits < TERM_V_MIN_CREDITS:
+            credit_status = "under"
+            credit_message = f"You have {total_credits} credits. Term V requires between {TERM_V_MIN_CREDITS} and {TERM_V_MAX_CREDITS} credits — you are below the minimum."
+        elif total_credits > TERM_V_MAX_CREDITS:
+            credit_status = "over"
+            credit_message = f"You have {total_credits} credits. Term V allows a maximum of {TERM_V_MAX_CREDITS} credits — you are above the limit."
+        else:
+            credit_message = f"You have {total_credits} credits — within the Term V range ({TERM_V_MIN_CREDITS}–{TERM_V_MAX_CREDITS})."
     doc = await get_window_doc()
     return {
         "name": student["name"],
         "pgpid": pgpid,
         "email": student["email"],
+        "program": program,
+        "stex": stex,
         "courses": courses,
+        "total_credits": total_credits,
+        "credit_status": credit_status,
+        "credit_message": credit_message,
+        "credit_min": TERM_V_MIN_CREDITS,
+        "credit_max": TERM_V_MAX_CREDITS,
         "window": compute_window_state(doc),
     }
 
+@api_router.get("/student/timetable")
+async def student_timetable(student=Depends(require_student)):
+    pgpid = student["pgpid"]
+    cmap, smap = await build_course_section_maps()
+    enrolls = await db.enrollments.find({"pgpid": pgpid}, {"_id": 0}).to_list(1000)
+    entries = [await enrich_enrollment(e, cmap, smap) for e in enrolls]
+    return {"entries": entries}
+
 @api_router.get("/student/available-courses")
 async def available_courses(student=Depends(require_student)):
-    """Courses & sections WITHOUT any capacity/strength information."""
+    """Courses & sections WITHOUT any capacity/strength information (credits & schedule are allowed)."""
     courses = await db.courses.find({}, {"_id": 0}).to_list(1000)
     sections = await db.sections.find({}, {"_id": 0, "min_capacity": 0, "max_capacity": 0}).to_list(2000)
     by_course = {}
     for s in sections:
-        by_course.setdefault(s["course_id"], []).append({"section_id": s["section_id"], "section_name": s["section_name"]})
+        by_course.setdefault(s["course_id"], []).append({
+            "section_id": s["section_id"], "section_name": s["section_name"],
+            "day": s.get("day"), "time_slot": s.get("time_slot"), "mid_tag": s.get("mid_tag"),
+        })
     result = []
     for c in courses:
         secs = sorted(by_course.get(c["course_id"], []), key=lambda x: x["section_name"])
-        result.append({"course_id": c["course_id"], "course_code": c["course_code"], "course_name": c["course_name"], "sections": secs})
+        result.append({"course_id": c["course_id"], "course_code": c["course_code"], "course_name": c["course_name"],
+                       "credits": c.get("credits"), "area": c.get("area"), "sections": secs})
     return sorted(result, key=lambda x: x["course_name"])
 
 @api_router.get("/student/lookup-partner")
@@ -903,6 +946,125 @@ async def import_commit(payload: CommitInput, admin=Depends(require_admin)):
     await db.import_staging.delete_one({"token": payload.token})
     await audit("IMPORT", admin["email"], f"imported {inserted} {kind} records")
     return {"ok": True, "inserted": inserted, "kind": kind}
+
+class SectionLimits(BaseModel):
+    min_capacity: Optional[int] = None
+    max_capacity: Optional[int] = None
+
+@api_router.put("/admin/sections/{section_id}")
+async def update_section_limits(section_id: str, payload: SectionLimits, admin=Depends(require_admin)):
+    s = await db.sections.find_one({"section_id": section_id}, {"_id": 0})
+    if not s:
+        raise HTTPException(status_code=404, detail="Section not found")
+    if payload.min_capacity is not None and payload.max_capacity is not None and payload.min_capacity > payload.max_capacity:
+        raise HTTPException(status_code=400, detail="Minimum capacity cannot be greater than maximum capacity.")
+    await db.sections.update_one({"section_id": section_id}, {"$set": {"min_capacity": payload.min_capacity, "max_capacity": payload.max_capacity}})
+    await audit("SECTION_LIMITS", admin["email"], f"set limits for {section_id}: min={payload.min_capacity} max={payload.max_capacity}")
+    return {"ok": True}
+
+@api_router.get("/admin/feasibility")
+async def feasibility(admin=Depends(require_admin)):
+    rows = await compute_capacity()
+    summary = {"OK": 0, "OVER": 0, "UNDER": 0, "NO_LIMIT": 0}
+    for r in rows:
+        mx, mn, proj = r["max_capacity"], r["min_capacity"], r["projected"]
+        if mx is None and mn is None:
+            flag = "NO_LIMIT"
+        elif mx is not None and proj > mx:
+            flag = "OVER"
+        elif mn is not None and proj < mn:
+            flag = "UNDER"
+        else:
+            flag = "OK"
+        r["flag"] = flag
+        summary[flag] += 1
+    return {"sections": rows, "summary": summary}
+
+# ---- Term V consolidated workbook import ----
+def _clean(v):
+    return str(v).strip() if v is not None else ""
+
+@api_router.post("/admin/import/termv")
+async def import_termv(file: UploadFile = File(...), admin=Depends(require_admin)):
+    content = await file.read()
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not read the workbook. Please upload the Term V .xlsx file.")
+
+    # 1) Course metadata (credits, area) from "Courses & Sections"
+    course_meta = {}
+    if "Courses & Sections" in wb.sheetnames:
+        ws = wb["Courses & Sections"]
+        for r in ws.iter_rows(min_row=4, values_only=True):
+            if r and _clean(r[0]) == "Course":
+                short = _clean(r[1])
+                if not short:
+                    continue
+                course_meta[short] = {
+                    "course_name": _clean(r[3]),
+                    "long_code": _clean(r[2]),
+                    "area": _clean(r[5]),
+                    "credits": float(r[6]) if r[6] is not None else 0.0,
+                }
+
+    if "Students by Section" not in wb.sheetnames:
+        raise HTTPException(status_code=400, detail="Missing 'Students by Section' sheet.")
+
+    ws = wb["Students by Section"]
+    students = {}       # roll_no -> student dict
+    courses = {}        # short_code -> course dict
+    sections = {}       # (short_code, section_name) -> section dict
+    enrollments = []    # (roll_no, short_code, section_name)
+
+    for r in ws.iter_rows(min_row=4, values_only=True):
+        if not r or not _clean(r[0]):
+            continue
+        short = _clean(r[0]); cname = _clean(r[1]); section = _clean(r[2]); mid = _clean(r[3])
+        day = _clean(r[4]); ts = _clean(r[5]); reg = _clean(r[7]); roll = _clean(r[8])
+        name = _clean(r[9]); email = _clean(r[10]).lower(); prog = _clean(r[11])
+        if not roll:
+            continue
+        students[roll] = {"pgpid": roll.upper(), "registration_id": reg, "name": name,
+                          "email": email or f"{roll.lower()}@iiml.ac.in", "program": prog, "stex": False}
+        meta = course_meta.get(short, {})
+        courses.setdefault(short, {"course_code": short, "course_name": cname or meta.get("course_name", short),
+                                   "credits": meta.get("credits", 0.0), "area": meta.get("area", ""), "long_code": meta.get("long_code", "")})
+        skey = (short, section)
+        sections.setdefault(skey, {"section_name": section, "day": day, "time_slot": ts, "mid_tag": mid})
+        enrollments.append((roll.upper(), short, section))
+
+    # Wipe master data + request data for a clean reload
+    for coll in ["students", "courses", "sections", "enrollments", "requests", "notifications", "import_staging"]:
+        await db[coll].delete_many({})
+
+    # Insert courses
+    course_id_by_short = {}
+    for short, c in courses.items():
+        cid = f"course_{uuid.uuid4().hex[:10]}"
+        course_id_by_short[short] = cid
+        await db.courses.insert_one({"course_id": cid, **c})
+    # Insert sections
+    section_id_by_key = {}
+    for (short, section), s in sections.items():
+        sid = f"section_{uuid.uuid4().hex[:10]}"
+        section_id_by_key[(short, section)] = sid
+        await db.sections.insert_one({"section_id": sid, "course_id": course_id_by_short[short],
+                                      "min_capacity": None, "max_capacity": None, **s})
+    # Insert students
+    for roll, st in students.items():
+        await db.students.insert_one(st)
+    # Insert enrollments
+    ecount = 0
+    for roll, short, section in enrollments:
+        cid = course_id_by_short.get(short); sid = section_id_by_key.get((short, section))
+        if not cid or not sid:
+            continue
+        await db.enrollments.insert_one({"pgpid": roll, "course_id": cid, "section_id": sid})
+        ecount += 1
+
+    await audit("IMPORT_TERMV", admin["email"], f"students={len(students)} courses={len(courses)} sections={len(sections)} enrollments={ecount}")
+    return {"ok": True, "students": len(students), "courses": len(courses), "sections": len(sections), "enrollments": ecount}
 
 @api_router.get("/")
 async def root():

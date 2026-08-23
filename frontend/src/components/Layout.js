@@ -4,11 +4,12 @@ import { Button } from "@/components/ui/button";
 import {
   LayoutDashboard, BookOpen, FilePlus2, ListChecks, Bell, User, LogOut,
   Inbox, ArrowLeftRight, Users, GraduationCap, Layers, Gauge, Download,
-  CalendarClock, ScrollText, UploadCloud, GitCompareArrows,
+  CalendarClock, ScrollText, UploadCloud, GitCompareArrows, CalendarDays, TrendingUp,
 } from "lucide-react";
 
 const STUDENT_NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/timetable", label: "Timetable", icon: CalendarDays },
   { to: "/submit", label: "Submit Request", icon: FilePlus2 },
   { to: "/requests", label: "My Requests", icon: ListChecks },
   { to: "/notifications", label: "Notifications", icon: Bell },
@@ -20,6 +21,7 @@ const ADMIN_NAV = [
   { to: "/admin/requests", label: "Requests", icon: Inbox },
   { to: "/admin/swaps", label: "Swaps", icon: GitCompareArrows },
   { to: "/admin/capacity", label: "Capacity", icon: Gauge },
+  { to: "/admin/feasibility", label: "Feasibility", icon: TrendingUp },
   { to: "/admin/students", label: "Students", icon: Users },
   { to: "/admin/courses", label: "Courses", icon: GraduationCap },
   { to: "/admin/sections", label: "Sections", icon: Layers },

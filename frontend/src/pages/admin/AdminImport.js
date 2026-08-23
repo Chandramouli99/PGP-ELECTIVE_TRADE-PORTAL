@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { UploadCloud, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
+import { UploadCloud, CheckCircle2, AlertTriangle, Loader2, FileSpreadsheet } from "lucide-react";
 
 const KINDS = [
   { id: "students", label: "Students", cols: "PGPID, Name, Email" },
@@ -19,6 +19,22 @@ export default function AdminImport() {
   const [kind, setKind] = useState("students");
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [termvBusy, setTermvBusy] = useState(false);
+  const [termvResult, setTermvResult] = useState(null);
+
+  const uploadTermv = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setTermvBusy(true); setTermvResult(null);
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const { data } = await api.post("/admin/import/termv", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setTermvResult(data);
+      toast.success(`Term V loaded: ${data.students} students, ${data.courses} courses, ${data.sections} sections, ${data.enrollments} enrollments`);
+    } catch (err) { toast.error(err?.response?.data?.detail || "Term V import failed"); }
+    finally { setTermvBusy(false); e.target.value = ""; }
+  };
 
   const upload = async (e) => {
     const file = e.target.files?.[0];
@@ -49,6 +65,37 @@ export default function AdminImport() {
   return (
     <Layout title="Master Data Import">
       <div className="max-w-4xl space-y-6">
+        <Card className="shadow-sm border-accent/40">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5 text-accent" /> Term V Consolidated Workbook (Recommended)</CardTitle>
+            <CardDescription>
+              Upload the full <span className="font-medium">Term V .xlsx</span> (with "Courses &amp; Sections" and "Students by Section" sheets).
+              This loads students, courses (with credits &amp; area), sections (with schedule) and all enrollments in one step.
+              <span className="block text-red-600 mt-1">Note: this replaces all existing master data and clears existing requests.</span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <label className="flex flex-col items-center justify-center border-2 border-dashed border-accent/40 rounded-lg py-10 cursor-pointer hover:border-accent transition-colors">
+              <input type="file" accept=".xlsx,.xls" className="hidden" onChange={uploadTermv} data-testid="termv-file-input" />
+              {termvBusy ? <Loader2 className="h-6 w-6 animate-spin text-accent" /> : <FileSpreadsheet className="h-8 w-8 text-accent" />}
+              <p className="text-sm text-muted-foreground mt-2">Click to upload the Term V consolidated workbook</p>
+            </label>
+            {termvResult && (
+              <div className="mt-4 grid grid-cols-4 gap-3 text-center" data-testid="termv-result">
+                {[["Students", termvResult.students], ["Courses", termvResult.courses], ["Sections", termvResult.sections], ["Enrollments", termvResult.enrollments]].map(([k, v]) => (
+                  <div key={k} className="rounded-md bg-secondary p-3"><p className="text-2xl font-semibold">{v}</p><p className="tiny-label">{k}</p></div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="flex items-center gap-3">
+          <div className="h-px flex-1 bg-border" />
+          <span className="tiny-label">or import individual CSV / Excel files</span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+
         <Tabs value={kind} onValueChange={(v) => { setKind(v); setPreview(null); }}>
           <TabsList data-testid="import-kind-tabs">
             {KINDS.map((k) => <TabsTrigger key={k.id} value={k.id} data-testid={`import-tab-${k.id}`}>{k.label}</TabsTrigger>)}

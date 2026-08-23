@@ -30,4 +30,12 @@ Secure request-collection & administration system for PGP course Add/Drop, Cours
 - P2: Built-in global feasibility engine (read-only, no auto-execute); capacity visualization charts; admin "revoke approval" endpoint; re-validate import on commit; split server.py into modules; tighten CORS to explicit origins.
 
 ## Next Tasks
-- Await user feedback; consider real full Google OAuth walkthrough; optional feasibility engine.
+- Await user feedback; consider real full Google OAuth walkthrough.
+
+## Update — 2026-08-23 (Term V feature addition)
+- Added 2nd admin email: secy.academics@iiml.ac.in (both admins in allowlist).
+- Term V consolidated .xlsx importer (POST /admin/import/termv): parses "Courses & Sections" (credits/area) + "Students by Section" (students/sections/schedule/enrollments); one-click load, replaces master data. Real data loaded: 453 students, 39 courses, 49 sections, 2663 enrollments.
+- Courses now carry credits + area; sections carry day/time_slot/mid_tag + editable min/max limits.
+- Student: Weekly Timetable tab (grid by day/time, area-colored, Not-Timetabled list); Dashboard now shows credits per course + total credits with Term V rule status (PGP non-STEX: 5.0–6.0).
+- Admin: Feasibility Engine (/admin/feasibility) — global current + pending adds/drops/swaps → projected, flags OK/OVER/UNDER/NO_LIMIT with section-fill bars; editable Min/Max on Sections page (min<=max enforced). Window set/extend already available.
+- Verified: 13/13 new-feature tests pass + frontend smoke; regression core flows intact.

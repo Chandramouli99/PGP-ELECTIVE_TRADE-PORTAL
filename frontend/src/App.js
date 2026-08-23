@@ -12,11 +12,13 @@ import MyRequests from "@/pages/student/MyRequests";
 import RequestDetail from "@/pages/student/RequestDetail";
 import Notifications from "@/pages/student/Notifications";
 import Profile from "@/pages/student/Profile";
+import StudentTimetable from "@/pages/student/StudentTimetable";
 
 import AdminDashboard from "@/pages/admin/AdminDashboard";
 import AdminRequests from "@/pages/admin/AdminRequests";
 import AdminSwaps from "@/pages/admin/AdminSwaps";
 import AdminCapacity from "@/pages/admin/AdminCapacity";
+import AdminFeasibility from "@/pages/admin/AdminFeasibility";
 import AdminStudents from "@/pages/admin/AdminStudents";
 import AdminCourses from "@/pages/admin/AdminCourses";
 import AdminSections from "@/pages/admin/AdminSections";
@@ -50,6 +52,7 @@ function AppRouter() {
 
       {/* Student */}
       <Route path="/dashboard" element={<Protected role="student"><StudentDashboard /></Protected>} />
+      <Route path="/timetable" element={<Protected role="student"><StudentTimetable /></Protected>} />
       <Route path="/submit" element={<Protected role="student"><SubmitRequest /></Protected>} />
       <Route path="/requests" element={<Protected role="student"><MyRequests /></Protected>} />
       <Route path="/requests/:id" element={<Protected role="student"><RequestDetail /></Protected>} />
@@ -61,6 +64,7 @@ function AppRouter() {
       <Route path="/admin/requests" element={<Protected role="admin"><AdminRequests /></Protected>} />
       <Route path="/admin/swaps" element={<Protected role="admin"><AdminSwaps /></Protected>} />
       <Route path="/admin/capacity" element={<Protected role="admin"><AdminCapacity /></Protected>} />
+      <Route path="/admin/feasibility" element={<Protected role="admin"><AdminFeasibility /></Protected>} />
       <Route path="/admin/students" element={<Protected role="admin"><AdminStudents /></Protected>} />
       <Route path="/admin/courses" element={<Protected role="admin"><AdminCourses /></Protected>} />
       <Route path="/admin/sections" element={<Protected role="admin"><AdminSections /></Protected>} />
