@@ -13,10 +13,12 @@ import RequestDetail from "@/pages/student/RequestDetail";
 import Notifications from "@/pages/student/Notifications";
 import Profile from "@/pages/student/Profile";
 import StudentTimetable from "@/pages/student/StudentTimetable";
+import TradingBoard from "@/pages/student/TradingBoard";
 
 import AdminDashboard from "@/pages/admin/AdminDashboard";
 import AdminRequests from "@/pages/admin/AdminRequests";
 import AdminSwaps from "@/pages/admin/AdminSwaps";
+import AdminTrading from "@/pages/admin/AdminTrading";
 import AdminCapacity from "@/pages/admin/AdminCapacity";
 import AdminFeasibility from "@/pages/admin/AdminFeasibility";
 import AdminStudents from "@/pages/admin/AdminStudents";
@@ -54,6 +56,7 @@ function AppRouter() {
       <Route path="/dashboard" element={<Protected role="student"><StudentDashboard /></Protected>} />
       <Route path="/timetable" element={<Protected role="student"><StudentTimetable /></Protected>} />
       <Route path="/submit" element={<Protected role="student"><SubmitRequest /></Protected>} />
+      <Route path="/trading" element={<Protected role="student"><TradingBoard /></Protected>} />
       <Route path="/requests" element={<Protected role="student"><MyRequests /></Protected>} />
       <Route path="/requests/:id" element={<Protected role="student"><RequestDetail /></Protected>} />
       <Route path="/notifications" element={<Protected role="student"><Notifications /></Protected>} />
@@ -63,6 +66,7 @@ function AppRouter() {
       <Route path="/admin" element={<Protected role="admin"><AdminDashboard /></Protected>} />
       <Route path="/admin/requests" element={<Protected role="admin"><AdminRequests /></Protected>} />
       <Route path="/admin/swaps" element={<Protected role="admin"><AdminSwaps /></Protected>} />
+      <Route path="/admin/trading" element={<Protected role="admin"><AdminTrading /></Protected>} />
       <Route path="/admin/capacity" element={<Protected role="admin"><AdminCapacity /></Protected>} />
       <Route path="/admin/feasibility" element={<Protected role="admin"><AdminFeasibility /></Protected>} />
       <Route path="/admin/students" element={<Protected role="admin"><AdminStudents /></Protected>} />

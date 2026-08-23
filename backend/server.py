@@ -651,7 +651,20 @@ async def my_request_detail(request_id: str, student=Depends(require_student)):
 
 @api_router.post("/student/requests/{request_id}/cancel")
 async def cancel_request(request_id: str, student=Depends(require_student)):
-    raise HTTPException(status_code=403, detail="Requests cannot be withdrawn once submitted.")
+    pgpid = student["pgpid"]
+    req = await db.requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req or req["student_pgpid"] != pgpid:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if req["request_type"] not in ("ADD", "DROP", "ADD_DROP"):
+        raise HTTPException(status_code=403, detail="Swap requests cannot be withdrawn once submitted.")
+    if not compute_window_state(await get_window_doc())["is_open"]:
+        raise HTTPException(status_code=403, detail="The request window has closed — requests can no longer be withdrawn.")
+    if req["status"] not in ("SUBMITTED", "UNDER_REVIEW"):
+        raise HTTPException(status_code=400, detail="This request can no longer be withdrawn.")
+    add_history(req, "CANCELLED", pgpid, "Withdrawn by student")
+    await db.requests.update_one({"request_id": request_id}, {"$set": {"status": req["status"], "updated_at": req["updated_at"], "history": req["history"]}})
+    await audit("WITHDRAW", pgpid, "withdrew request", request_id)
+    return {"ok": True}
 
 # ---- Notifications & swap response ----
 @api_router.get("/student/notifications")
@@ -1163,6 +1176,126 @@ async def import_termv(file: UploadFile = File(...), admin=Depends(require_admin
 
     await audit("IMPORT_TERMV", admin["email"], f"students={len(students)} courses={len(courses)} sections={len(sections)} enrollments={ecount}")
     return {"ok": True, "students": len(students), "courses": len(courses), "sections": len(sections), "enrollments": ecount}
+
+# ------------------------------------------------------------------
+# Trading Board (public marketplace of add/drop cases)
+# ------------------------------------------------------------------
+async def get_trading_settings():
+    doc = await db.settings.find_one({"key": "trading"}, {"_id": 0})
+    if not doc:
+        doc = {"key": "trading", "enabled": True}
+        await db.settings.insert_one(doc)
+        doc.pop("_id", None)
+    return doc
+
+async def trading_is_open():
+    t = await get_trading_settings()
+    w = compute_window_state(await get_window_doc())
+    return (t["enabled"] and w["is_open"]), t, w
+
+def resolve_courses(ids, cmap):
+    out = []
+    for cid in ids:
+        c = cmap.get(cid)
+        if c:
+            out.append({"course_id": cid, "course_code": c["course_code"], "course_name": c["course_name"], "credits": c.get("credits")})
+    return out
+
+class TradingPostInput(BaseModel):
+    drop_course_ids: List[str] = []
+    add_course_ids: List[str] = []
+    note: Optional[str] = None
+
+@api_router.get("/trading/board")
+async def trading_board(student=Depends(require_student)):
+    is_open, t, w = await trading_is_open()
+    if not is_open:
+        msg = "The trading board is currently closed by the administrator." if not t["enabled"] else w["message"]
+        return {"enabled": False, "message": msg, "posts": []}
+    cmap, _ = await build_course_section_maps()
+    posts = await db.trading_posts.find({"active": True}, {"_id": 0}).sort("updated_at", -1).to_list(5000)
+    out = [{
+        "post_id": p["post_id"], "pgpid": p["pgpid"], "student_name": p["student_name"],
+        "drop_courses": resolve_courses(p.get("drop_course_ids", []), cmap),
+        "add_courses": resolve_courses(p.get("add_course_ids", []), cmap),
+        "note": p.get("note"), "updated_at": p["updated_at"], "is_mine": p["pgpid"] == student["pgpid"],
+    } for p in posts]
+    return {"enabled": True, "message": "", "posts": out}
+
+@api_router.get("/trading/mine")
+async def trading_mine(student=Depends(require_student)):
+    p = await db.trading_posts.find_one({"pgpid": student["pgpid"], "active": True}, {"_id": 0})
+    if not p:
+        return {"post": None}
+    return {"post": {"post_id": p["post_id"], "drop_course_ids": p.get("drop_course_ids", []),
+                     "add_course_ids": p.get("add_course_ids", []), "note": p.get("note")}}
+
+@api_router.post("/trading/posts")
+async def upsert_trading_post(payload: TradingPostInput, student=Depends(require_student)):
+    is_open, t, w = await trading_is_open()
+    if not is_open:
+        raise HTTPException(status_code=403, detail="The trading board is currently closed.")
+    pgpid = student["pgpid"]
+    owned = {e["course_id"] for e in await db.enrollments.find({"pgpid": pgpid}, {"_id": 0}).to_list(1000)}
+    cmap, _ = await build_course_section_maps()
+    for cid in payload.drop_course_ids:
+        if cid not in owned:
+            raise HTTPException(status_code=400, detail="Under 'want to drop' you can only list courses you are currently enrolled in.")
+    for cid in payload.add_course_ids:
+        if cid not in cmap or cid in owned:
+            raise HTTPException(status_code=400, detail="Under 'want to add' you can only list courses you don't already have.")
+    if not payload.drop_course_ids and not payload.add_course_ids:
+        raise HTTPException(status_code=400, detail="Add at least one course you want to drop or add.")
+    now = iso(now_utc())
+    existing = await db.trading_posts.find_one({"pgpid": pgpid}, {"_id": 0})
+    doc = {"pgpid": pgpid, "student_name": student["name"], "drop_course_ids": payload.drop_course_ids,
+           "add_course_ids": payload.add_course_ids, "note": payload.note, "active": True, "updated_at": now}
+    if existing:
+        await db.trading_posts.update_one({"pgpid": pgpid}, {"$set": doc})
+        post_id = existing["post_id"]
+    else:
+        post_id = f"trade_{uuid.uuid4().hex[:10]}"
+        await db.trading_posts.insert_one({"post_id": post_id, "created_at": now, **doc})
+    await audit("TRADING_POST", pgpid, "created/updated trading case")
+    return {"ok": True, "post_id": post_id}
+
+@api_router.delete("/trading/posts/{post_id}")
+async def delete_trading_post(post_id: str, student=Depends(require_student)):
+    p = await db.trading_posts.find_one({"post_id": post_id}, {"_id": 0})
+    if not p or p["pgpid"] != student["pgpid"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    await db.trading_posts.delete_one({"post_id": post_id})
+    await audit("TRADING_DELETE", student["pgpid"], "deleted own trading case", None)
+    return {"ok": True}
+
+@api_router.get("/admin/trading")
+async def admin_trading(admin=Depends(require_admin)):
+    t = await get_trading_settings()
+    cmap, _ = await build_course_section_maps()
+    posts = await db.trading_posts.find({}, {"_id": 0}).sort("updated_at", -1).to_list(5000)
+    out = [{
+        "post_id": p["post_id"], "pgpid": p["pgpid"], "student_name": p["student_name"],
+        "drop_courses": resolve_courses(p.get("drop_course_ids", []), cmap),
+        "add_courses": resolve_courses(p.get("add_course_ids", []), cmap),
+        "note": p.get("note"), "updated_at": p["updated_at"],
+    } for p in posts]
+    w = compute_window_state(await get_window_doc())
+    return {"enabled": t["enabled"], "window_open": w["is_open"], "posts": out}
+
+class TradingSettingsInput(BaseModel):
+    enabled: bool
+
+@api_router.put("/admin/trading/settings")
+async def admin_trading_settings(payload: TradingSettingsInput, admin=Depends(require_admin)):
+    await db.settings.update_one({"key": "trading"}, {"$set": {"enabled": payload.enabled}}, upsert=True)
+    await audit("TRADING_SETTINGS", admin["email"], f"trading enabled={payload.enabled}")
+    return {"ok": True, "enabled": payload.enabled}
+
+@api_router.delete("/admin/trading/{post_id}")
+async def admin_delete_trading(post_id: str, admin=Depends(require_admin)):
+    await db.trading_posts.delete_one({"post_id": post_id})
+    await audit("TRADING_ADMIN_DELETE", admin["email"], f"removed trading post {post_id}")
+    return {"ok": True}
 
 @api_router.get("/")
 async def root():

@@ -308,7 +308,7 @@ export default function SubmitRequest() {
               <Textarea data-testid="input-comment" placeholder="Add any context for the administrator" value={form.comment || ""} onChange={(e) => set("comment", e.target.value)} />
             </div>
 
-            <p className="text-xs text-muted-foreground">Note: requests cannot be withdrawn once submitted.</p>
+            <p className="text-xs text-muted-foreground">{(type === "COURSE_SWAP" || type === "SECTION_SWAP") ? "Note: swap requests cannot be withdrawn once submitted." : "Note: you can withdraw this request any time while the request window is open."}</p>
 
             <div className="flex gap-3 pt-2">
               <Button variant="outline" data-testid="back-button" onClick={() => setType(null)}>Back</Button>
@@ -327,7 +327,7 @@ export default function SubmitRequest() {
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-left">
                 {warnings.map((w, i) => (<div key={i}>• {w}</div>))}
-                <div className="pt-1">You can still submit this request, but it may not be approved. Requests cannot be withdrawn once submitted.</div>
+                <div className="pt-1">You can still submit this request, but it may not be approved.{(type === "COURSE_SWAP" || type === "SECTION_SWAP") ? " Swap requests cannot be withdrawn once submitted." : ""}</div>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>

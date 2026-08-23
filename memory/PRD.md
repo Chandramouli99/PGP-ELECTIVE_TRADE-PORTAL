@@ -44,6 +44,11 @@ Secure request-collection & administration system for PGP course Add/Drop, Cours
 - No withdrawal: cancellation removed — POST /student/requests/{id}/cancel now always 403; the Cancel button is gone and replaced with a notice.
 - Verified: iter5 17/17 backend + 5/5 frontend surfaces pass, zero issues.
 
+## Update — 2026-08-23 (withdrawal + trading board)
+- Withdrawal: Add/Drop/Add+Drop can be withdrawn while the request window is OPEN (status Submitted/Under Review), locked once the window closes; Course/Section swaps can never be withdrawn (warned at submit). Withdraw frees quota.
+- Trading Board (public marketplace): students post one editable "case" — courses they want to DROP (from current) and ADD (not owned) + optional note; posts show Name + PGPID to all logged-in students (informational only; actual swaps via existing flow). Create/edit/delete own case. Visible only when request window open AND admin toggle on. Admin page: enable/disable toggle + view/remove any post. No capacity/strength exposed.
+- Verified: iter6 15/15 backend + all frontend surfaces pass, zero issues.
+
 ## Update — 2026-08-23 (Term V feature addition)
 - Added 2nd admin email: secy.academics@iiml.ac.in (both admins in allowlist).
 - Term V consolidated .xlsx importer (POST /admin/import/termv): parses "Courses & Sections" (credits/area) + "Students by Section" (students/sections/schedule/enrollments); one-click load, replaces master data. Real data loaded: 453 students, 39 courses, 49 sections, 2663 enrollments.

@@ -1,0 +1,28 @@
+{
+  "summary": "Iteration 6 (withdrawal rules + trading board). Backend: new /app/backend/tests/test_termv_iter6.py = 15/15 PASS covering withdraw ADD success + quota-freeing, swap withdraw => 403, window-closed withdraw => 403, trading board GET/POST/DELETE, upsert semantics, drop-must-be-owned + add-must-not-be-owned + empty payload validation, delete-other's forbidden, admin toggle disables board + blocks POST, window-closed hides board, admin view + remove, and student blocked from all /api/admin/trading*. Frontend: verified via preview URL - Student /trading sidebar link present, drop-chip-<CODE> (7 chips) + add-chip-<CODE> (32 chips) render, save-case-button posts (toast 'Your case is live on the trading board'), own card renders with (You) marker + PGPID PGP41071 + Wants to drop/add chips, delete-case-button appears after save. Student RequestDetail: [data-testid=withdraw-request-button] visible on ADD (status Submitted, window open), clicking withdraws and transitions to CANCELLED; on COURSE_SWAP detail the button is absent and the note 'Swap requests cannot be withdrawn once submitted.' is shown. Admin /admin/trading: sidebar 'Trading Board' present, trading-enabled-switch toggles enabled state (verified via GET /admin/trading), window status line shows OPEN, remove-post-<PGPID> deletes the post. Privacy: trading responses only expose pgpid/student_name/course_id/course_code/course_name/credits — no section capacity/strength. State restored: window OPEN + trading enabled + all TEST_* docs and PGP41071 requests/trading_posts purged.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_termv_iter6.py",
+    "/app/test_reports/pytest/iter6_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py cancel_request (lines 652-667) is clean: correct order — ownership -> type gate -> window gate -> status gate -> add_history. All four error paths return the exact strings the frontend keys off.",
+    "trading_is_open() correctly combines admin toggle AND window state, and get_trading_settings seeds a default {enabled:true} row idempotently.",
+    "upsert_trading_post enforces (a) drop_course_ids ⊆ owned, (b) add_course_ids ∩ owned = ∅ AND ids exist in cmap, (c) at least one non-empty list — matches spec exactly.",
+    "delete_trading_post correctly returns 403 (not 404) for other-owner AND non-existent post ids — good, doesn't leak existence.",
+    "admin_delete_trading silently succeeds even if post_id doesn't exist (delete_many-style). Minor: consider returning 404 for missing ids for consistency with student delete errors, but not blocking.",
+    "TradingBoard.js has a small race: three parallel GETs on mount (/trading/board, /trading/mine, /student/dashboard, /student/available-courses). Works but consider Promise.all + single setState to avoid flicker on slow networks.",
+    "server.py is now 1317 lines — recurring modularisation recommendation from iter 4/5 still stands (split into routers: student, admin, trading, swaps).",
+    "RequestDetail withdraw-not-allowed message covers three branches (swap / bad-status / window-closed) — good coverage; consider surfacing the same when window is closed but status still SUBMITTED for extra clarity (current message already does this)."
+  ],
+  "updated_files": ["/app/backend/tests/test_termv_iter6.py"],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100% (all surfaces verified)"},
+  "test_credentials": "Bearer stu_real (PGP41071) / stu_pgp41473 (PGP41473) / admintest_session — /app/memory/test_credentials.md.",
+  "seed_data_creation": "Tests self-cleanup via mongosh delete_many on requests/trading_posts for PGP41071/PGP41473 before + after each test class. Verified 0 residual docs after run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_termv_iter6.py -v -n 0. Iter6 testids introduced: nav-trading-board, drop-chip-<CODE>, add-chip-<CODE>, save-case-button, delete-case-button, trading-note, trading-post-<PGPID>, admin-trading-post-<PGPID>, remove-post-<PGPID>, trading-enabled-switch, withdraw-request-button. Cancel endpoint semantics changed AGAIN: now 200 for ADD/DROP/ADD_DROP while window open & status in {SUBMITTED,UNDER_REVIEW}; 403 for swap types; 403 when window closed; 400 for terminal-status add/drop. Section swap payload key remains `my_section_id`. Trading upsert is single-per-pgpid (POST replaces).",
+  "rca of the issue": "N/A — no bugs found."
+}

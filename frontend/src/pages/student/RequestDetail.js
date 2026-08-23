@@ -5,17 +5,32 @@ import api from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, REQUEST_TYPE_LABELS, STATUS_LABELS } from "@/components/StatusBadge";
+import { toast } from "sonner";
 import { ArrowLeft, CircleDot } from "lucide-react";
 
 export default function RequestDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [req, setReq] = useState(null);
+  const [windowOpen, setWindowOpen] = useState(false);
 
   const load = () => api.get(`/student/requests/${id}`).then((r) => setReq(r.data)).catch(() => navigate("/requests"));
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => {
+    load();
+    api.get("/window").then((r) => setWindowOpen(r.data.is_open)).catch(() => {});
+  }, [id]);
+
+  const withdraw = async () => {
+    try {
+      await api.post(`/student/requests/${id}/cancel`);
+      toast.success("Request withdrawn");
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Could not withdraw"); }
+  };
 
   if (!req) return <Layout title="Request Details"><div /></Layout>;
+  const isSwap = req.request_type === "COURSE_SWAP" || req.request_type === "SECTION_SWAP";
+  const canWithdraw = !isSwap && windowOpen && ["SUBMITTED", "UNDER_REVIEW"].includes(req.status);
 
   return (
     <Layout title="Request Details">
@@ -55,7 +70,20 @@ export default function RequestDetail() {
             {req.clash_note && <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2" data-testid="detail-clash-note">⚠ {req.clash_note}</p>}
             {req.comment && <p className="text-sm"><span className="text-muted-foreground">Your comment:</span> {req.comment}</p>}
             {req.admin_comment && <p className="text-sm"><span className="text-muted-foreground">Admin comment:</span> {req.admin_comment}</p>}
-            <p className="text-xs text-muted-foreground">Requests cannot be withdrawn once submitted.</p>
+
+            {canWithdraw ? (
+              <Button variant="outline" data-testid="withdraw-request-button" className="text-red-600 border-red-200 hover:bg-red-50" onClick={withdraw}>
+                Withdraw Request
+              </Button>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {isSwap
+                  ? "Swap requests cannot be withdrawn once submitted."
+                  : !["SUBMITTED", "UNDER_REVIEW"].includes(req.status)
+                    ? "This request can no longer be withdrawn."
+                    : "The request window has closed — this request can no longer be withdrawn."}
+              </p>
+            )}
           </CardContent>
         </Card>
 
