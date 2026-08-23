@@ -10,9 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { PlusCircle, MinusCircle, Repeat, GitCompareArrows, ArrowLeftRight, Loader2, Search, AlertTriangle } from "lucide-react";
+import { PlusCircle, MinusCircle, Repeat, GitCompareArrows, ArrowLeftRight, Loader2, Search, AlertTriangle, Lock } from "lucide-react";
 
-// Swaps first, then add / drop / add+drop
 const TYPES = [
   { id: "COURSE_SWAP", label: "Course Swap", desc: "Exchange a course with another student.", icon: GitCompareArrows },
   { id: "SECTION_SWAP", label: "Section Swap", desc: "Swap sections in the same course.", icon: ArrowLeftRight },
@@ -28,6 +27,7 @@ export default function SubmitRequest() {
   const [type, setType] = useState(null);
   const [dashboard, setDashboard] = useState(null);
   const [available, setAvailable] = useState([]);
+  const [quota, setQuota] = useState(null);
   const [windowOpen, setWindowOpen] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({});
@@ -38,6 +38,7 @@ export default function SubmitRequest() {
   useEffect(() => {
     api.get("/student/dashboard").then((r) => { setDashboard(r.data); setWindowOpen(r.data.window.is_open); });
     api.get("/student/available-courses").then((r) => setAvailable(r.data));
+    api.get("/student/quota").then((r) => setQuota(r.data));
   }, []);
 
   const myCourses = dashboard?.courses || [];
@@ -48,6 +49,21 @@ export default function SubmitRequest() {
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const sectionsFor = (courseId) => available.find((c) => c.course_id === courseId)?.sections || [];
   const giveCourse = myCourses.find((c) => c.course_id === form.give_course_id);
+
+  const exhausted = quota ? {
+    COURSE_SWAP: quota.course_swap_used >= quota.course_swap_limit,
+    SECTION_SWAP: quota.section_swap_used >= quota.section_swap_limit,
+    ADD: quota.add_used >= quota.add_limit,
+    DROP: quota.drop_used >= quota.drop_limit,
+    ADD_DROP: quota.add_used >= quota.add_limit || quota.drop_used >= quota.drop_limit,
+  } : {};
+  const usageLabel = quota ? {
+    COURSE_SWAP: `${quota.course_swap_used}/${quota.course_swap_limit} used`,
+    SECTION_SWAP: `${quota.section_swap_used}/${quota.section_swap_limit} used`,
+    ADD: `${quota.add_used}/${quota.add_limit} used`,
+    DROP: `${quota.drop_used}/${quota.drop_limit} used`,
+    ADD_DROP: `Add ${quota.add_used}/${quota.add_limit} · Drop ${quota.drop_used}/${quota.drop_limit}`,
+  } : {};
 
   const projectedCredits = () => {
     let p = myCredits;
@@ -66,6 +82,26 @@ export default function SubmitRequest() {
     if (p < creditMin) return `This will put you at ${p} credits — below the Term V minimum of ${creditMin}.`;
     return null;
   };
+
+  const clashWarning = () => {
+    let sec = null, excludeCourseId = null;
+    if (type === "ADD" || type === "ADD_DROP") {
+      sec = sectionsFor(form.add_course_id).find((s) => s.section_id === form.add_section_id);
+      if (type === "ADD_DROP") excludeCourseId = form.drop_course_id;
+    } else if (type === "COURSE_SWAP") {
+      sec = partner?.courses.find((c) => c.course_id === form.want_course_id);
+      excludeCourseId = form.give_course_id;
+    } else if (type === "SECTION_SWAP") {
+      sec = partner?.courses.find((c) => c.course_id === form.swap_course_id);
+      excludeCourseId = form.swap_course_id;
+    }
+    if (!sec || !sec.day || sec.day === "Not timetabled" || !sec.time_slot || sec.time_slot === "—") return null;
+    const clashes = myCourses.filter((c) => c.course_id !== excludeCourseId && c.day === sec.day && c.time_slot === sec.time_slot);
+    if (clashes.length) return `Time clash on ${sec.day} ${sec.time_slot} with: ${clashes.map((c) => c.course_name).join(", ")}.`;
+    return null;
+  };
+
+  const warnings = [creditWarning(), clashWarning()].filter(Boolean);
 
   const lookupPartner = async () => {
     if (!form.partner_pgpid) return;
@@ -95,7 +131,7 @@ export default function SubmitRequest() {
   };
 
   const handleSubmitClick = () => {
-    if (creditWarning()) { setConfirmOpen(true); return; }
+    if (warnings.length) { setConfirmOpen(true); return; }
     doSubmit();
   };
 
@@ -112,7 +148,6 @@ export default function SubmitRequest() {
     );
   }
 
-  const warning = creditWarning();
   const wantOptions = partner ? partner.courses.filter((pc) =>
     !myCourses.some((mc) => mc.course_id === pc.course_id) &&
     pc.course_id !== form.give_course_id &&
@@ -125,14 +160,23 @@ export default function SubmitRequest() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6 max-w-5xl">
           {TYPES.map((t) => {
             const Icon = t.icon;
+            const isOut = exhausted[t.id];
             return (
               <button
                 key={t.id}
+                disabled={isOut}
                 data-testid={`request-type-${t.id}`}
-                onClick={() => { setType(t.id); setForm({}); setPartner(null); }}
-                className="text-left bg-card border rounded-lg p-6 hover:border-primary hover:shadow-sm transition-colors"
+                onClick={() => { if (isOut) return; setType(t.id); setForm({}); setPartner(null); }}
+                className={`text-left bg-card border rounded-lg p-6 transition-colors ${isOut ? "opacity-60 cursor-not-allowed" : "hover:border-primary hover:shadow-sm"}`}
               >
-                <div className="h-11 w-11 rounded-md bg-primary/10 flex items-center justify-center mb-4"><Icon className="h-5 w-5 text-primary" /></div>
+                <div className="flex items-start justify-between">
+                  <div className="h-11 w-11 rounded-md bg-primary/10 flex items-center justify-center mb-4"><Icon className="h-5 w-5 text-primary" /></div>
+                  {quota && (
+                    isOut
+                      ? <span className="flex items-center gap-1 text-xs font-medium text-red-600" data-testid={`limit-${t.id}`}><Lock className="h-3 w-3" /> Limit reached</span>
+                      : <span className="text-xs text-muted-foreground">{usageLabel[t.id]}</span>
+                  )}
+                </div>
                 <p className="font-semibold text-lg">{t.label}</p>
                 <p className="text-sm text-muted-foreground mt-1">{t.desc}</p>
               </button>
@@ -146,7 +190,6 @@ export default function SubmitRequest() {
             <CardDescription>{TYPES.find((t) => t.id === type).desc}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* ADD / ADD_DROP */}
             {(type === "ADD" || type === "ADD_DROP") && (
               <>
                 {type === "ADD_DROP" && (
@@ -183,7 +226,6 @@ export default function SubmitRequest() {
               </>
             )}
 
-            {/* DROP */}
             {type === "DROP" && (
               <div className="space-y-2">
                 <Label className="tiny-label">Course to Drop</Label>
@@ -196,15 +238,15 @@ export default function SubmitRequest() {
               </div>
             )}
 
-            {/* Credit warning (non-blocking) */}
-            {warning && (
-              <div data-testid="credit-warning" className="rounded-md bg-amber-50 border border-amber-200 text-amber-800 p-3 text-sm flex gap-2">
-                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                <span>{warning} You can still submit, but it may not be approved.</span>
+            {warnings.length > 0 && (
+              <div data-testid="request-warning" className="rounded-md bg-amber-50 border border-amber-200 text-amber-800 p-3 text-sm space-y-1">
+                {warnings.map((w, i) => (
+                  <div key={i} className="flex gap-2"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /><span>{w}</span></div>
+                ))}
+                <p className="text-xs pl-6">You can still submit, but it may not be approved.</p>
               </div>
             )}
 
-            {/* SWAPS: partner lookup */}
             {(type === "COURSE_SWAP" || type === "SECTION_SWAP") && (
               <div className="space-y-2">
                 <Label className="tiny-label">Swap Partner PGPID</Label>
@@ -218,7 +260,6 @@ export default function SubmitRequest() {
               </div>
             )}
 
-            {/* COURSE SWAP */}
             {type === "COURSE_SWAP" && partner && (
               <>
                 <div className="space-y-2">
@@ -238,17 +279,12 @@ export default function SubmitRequest() {
                       {wantOptions.map((c) => (<SelectItem key={c.course_id} value={c.course_id}>{c.course_name} — Sec {c.section_name} · {cr(c.credits)}</SelectItem>))}
                     </SelectContent>
                   </Select>
-                  {giveCourse && (
-                    <p className="text-xs text-muted-foreground">Showing only {cr(giveCourse.credits)} courses you don't already have (no cross-credit swaps).</p>
-                  )}
-                  {giveCourse && wantOptions.length === 0 && (
-                    <p className="text-xs text-red-600">This partner has no matching {cr(giveCourse.credits)} course you can receive.</p>
-                  )}
+                  {giveCourse && <p className="text-xs text-muted-foreground">Showing only {cr(giveCourse.credits)} courses you don't already have (no cross-credit swaps).</p>}
+                  {giveCourse && wantOptions.length === 0 && <p className="text-xs text-red-600">This partner has no matching {cr(giveCourse.credits)} course you can receive.</p>}
                 </div>
               </>
             )}
 
-            {/* SECTION SWAP */}
             {type === "SECTION_SWAP" && partner && (
               <div className="space-y-2">
                 <Label className="tiny-label">Course (same course, swap sections)</Label>
@@ -272,6 +308,8 @@ export default function SubmitRequest() {
               <Textarea data-testid="input-comment" placeholder="Add any context for the administrator" value={form.comment || ""} onChange={(e) => set("comment", e.target.value)} />
             </div>
 
+            <p className="text-xs text-muted-foreground">Note: requests cannot be withdrawn once submitted.</p>
+
             <div className="flex gap-3 pt-2">
               <Button variant="outline" data-testid="back-button" onClick={() => setType(null)}>Back</Button>
               <Button data-testid="submit-request-button" onClick={handleSubmitClick} disabled={submitting} className="bg-primary hover:bg-primary/90">
@@ -283,14 +321,19 @@ export default function SubmitRequest() {
       )}
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent data-testid="credit-confirm-dialog">
+        <AlertDialogContent data-testid="warning-confirm-dialog">
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-600" /> Credit limit notice</AlertDialogTitle>
-            <AlertDialogDescription>{warning} You can still submit this request, but it may not be approved by the administrator.</AlertDialogDescription>
+            <AlertDialogTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-600" /> Please review before submitting</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-left">
+                {warnings.map((w, i) => (<div key={i}>• {w}</div>))}
+                <div className="pt-1">You can still submit this request, but it may not be approved. Requests cannot be withdrawn once submitted.</div>
+              </div>
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="credit-confirm-cancel">Go Back</AlertDialogCancel>
-            <AlertDialogAction data-testid="credit-confirm-submit" onClick={doSubmit} className="bg-primary hover:bg-primary/90">Submit Anyway</AlertDialogAction>
+            <AlertDialogCancel data-testid="warning-confirm-cancel">Go Back</AlertDialogCancel>
+            <AlertDialogAction data-testid="warning-confirm-submit" onClick={doSubmit} className="bg-primary hover:bg-primary/90">Submit Anyway</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

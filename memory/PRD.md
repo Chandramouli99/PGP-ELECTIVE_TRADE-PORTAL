@@ -38,6 +38,12 @@ Secure request-collection & administration system for PGP course Add/Drop, Cours
 - Request window: default 24h when enabled with no closing time; admin Quick Actions (Open 24h / Extend +12h / +24h / Close now); student header + admin page show live countdown.
 - Verified: iter4 8/8 + RBAC 27/27 + 8/8 frontend scenarios pass.
 
+## Update — 2026-08-23 (quotas + clash + no-withdrawal)
+- Timetable clash alerts: non-blocking warning when an Add/Course-Swap/Section-Swap would place a class in a day+time slot the student already occupies (excludes the course being dropped/given up). Stored as clash_note, shown to student (inline + confirm dialog) and to admin.
+- Per-student request quotas: Add 1, Drop 1, Course Swap 2, Section Swap 2 (Add+Drop consumes one Add and one Drop). Enforced server-side (403) and reflected on the Submit page (usage labels + disabled 'Limit reached' cards). Rejected/partner-rejected requests don't consume quota. GET /student/quota.
+- No withdrawal: cancellation removed — POST /student/requests/{id}/cancel now always 403; the Cancel button is gone and replaced with a notice.
+- Verified: iter5 17/17 backend + 5/5 frontend surfaces pass, zero issues.
+
 ## Update — 2026-08-23 (Term V feature addition)
 - Added 2nd admin email: secy.academics@iiml.ac.in (both admins in allowlist).
 - Term V consolidated .xlsx importer (POST /admin/import/termv): parses "Courses & Sections" (credits/area) + "Students by Section" (students/sections/schedule/enrollments); one-click load, replaces master data. Real data loaded: 453 students, 39 courses, 49 sections, 2663 enrollments.

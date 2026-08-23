@@ -400,6 +400,7 @@ def new_request_base(student, request_type, comment):
         "actions": [],
         "swap": None,
         "credit_note": None,
+        "clash_note": None,
         "created_at": iso(now_utc()),
         "updated_at": iso(now_utc()),
         "history": [],
@@ -435,6 +436,40 @@ async def compute_credit_note(pgpid, cmap, add_course_id=None, drop_course_id=No
             return f"Projected {projected} credits — below the Term V minimum of {TERM_V_MIN_CREDITS}."
     return None
 
+QUOTA_EXCLUDE_STATUSES = {"REJECTED", "PARTNER_REJECTED", "CANCELLED"}
+REQUEST_LIMITS = {"add": 1, "drop": 1, "course_swap": 2, "section_swap": 2}
+
+async def get_request_quota(pgpid):
+    reqs = await db.requests.find({"student_pgpid": pgpid, "status": {"$nin": list(QUOTA_EXCLUDE_STATUSES)}}, {"_id": 0, "request_type": 1}).to_list(1000)
+    def n(t):
+        return sum(1 for r in reqs if r["request_type"] == t)
+    add_used = n("ADD") + n("ADD_DROP")
+    drop_used = n("DROP") + n("ADD_DROP")
+    return {
+        "add_used": add_used, "add_limit": REQUEST_LIMITS["add"],
+        "drop_used": drop_used, "drop_limit": REQUEST_LIMITS["drop"],
+        "course_swap_used": n("COURSE_SWAP"), "course_swap_limit": REQUEST_LIMITS["course_swap"],
+        "section_swap_used": n("SECTION_SWAP"), "section_swap_limit": REQUEST_LIMITS["section_swap"],
+    }
+
+async def compute_clash_note(pgpid, cmap, smap, new_section_id, exclude_course_id=None):
+    ns = smap.get(new_section_id) or {}
+    day = ns.get("day"); ts = ns.get("time_slot")
+    if not day or day == "Not timetabled" or not ts or ts == "—":
+        return None
+    enrolls = await db.enrollments.find({"pgpid": pgpid}, {"_id": 0}).to_list(1000)
+    clashes = []
+    for e in enrolls:
+        if exclude_course_id and e["course_id"] == exclude_course_id:
+            continue
+        s = smap.get(e["section_id"]) or {}
+        if s.get("day") == day and s.get("time_slot") == ts:
+            cn = cmap.get(e["course_id"], {}).get("course_name", "")
+            clashes.append(f"{cn} (Sec {s.get('section_name')})")
+    if clashes:
+        return f"Time clash on {day} {ts} with: {', '.join(clashes)}."
+    return None
+
 @api_router.post("/student/requests")
 async def submit_request(payload: RequestInput, student=Depends(require_student)):
     await ensure_window_open()
@@ -443,6 +478,18 @@ async def submit_request(payload: RequestInput, student=Depends(require_student)
         raise HTTPException(status_code=400, detail="Invalid request type")
     pgpid = student["pgpid"]
     cmap, smap = await build_course_section_maps()
+
+    q = await get_request_quota(pgpid)
+    if rtype == "ADD" and q["add_used"] >= q["add_limit"]:
+        raise HTTPException(status_code=403, detail="You have reached the limit of 1 Add request.")
+    if rtype == "DROP" and q["drop_used"] >= q["drop_limit"]:
+        raise HTTPException(status_code=403, detail="You have reached the limit of 1 Drop request.")
+    if rtype == "ADD_DROP" and (q["add_used"] >= q["add_limit"] or q["drop_used"] >= q["drop_limit"]):
+        raise HTTPException(status_code=403, detail="You have reached your Add/Drop request limit (1 each).")
+    if rtype == "COURSE_SWAP" and q["course_swap_used"] >= q["course_swap_limit"]:
+        raise HTTPException(status_code=403, detail="You have reached the limit of 2 Course Swap requests.")
+    if rtype == "SECTION_SWAP" and q["section_swap_used"] >= q["section_swap_limit"]:
+        raise HTTPException(status_code=403, detail="You have reached the limit of 2 Section Swap requests.")
 
     async def owns(course_id, section_id):
         e = await db.enrollments.find_one({"pgpid": pgpid, "course_id": course_id, "section_id": section_id}, {"_id": 0})
@@ -568,6 +615,14 @@ async def submit_request(payload: RequestInput, student=Depends(require_student)
             drop_course_id=payload.drop_course_id if rtype in ("DROP", "ADD_DROP") else None,
         )
 
+    if rtype in ("ADD", "ADD_DROP"):
+        req["clash_note"] = await compute_clash_note(pgpid, cmap, smap, payload.add_section_id,
+                                                     exclude_course_id=payload.drop_course_id if rtype == "ADD_DROP" else None)
+    elif rtype == "COURSE_SWAP":
+        req["clash_note"] = await compute_clash_note(pgpid, cmap, smap, payload.want_section_id, exclude_course_id=payload.give_course_id)
+    elif rtype == "SECTION_SWAP":
+        req["clash_note"] = await compute_clash_note(pgpid, cmap, smap, payload.requested_section_id, exclude_course_id=payload.swap_course_id)
+
     await db.requests.insert_one({**req})
     await audit("SUBMIT", pgpid, f"submitted {rtype}", req["request_id"])
     req.pop("_id", None)
@@ -578,6 +633,10 @@ async def my_requests(student=Depends(require_student)):
     pgpid = student["pgpid"]
     reqs = await db.requests.find({"student_pgpid": pgpid}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     return reqs
+
+@api_router.get("/student/quota")
+async def student_quota(student=Depends(require_student)):
+    return await get_request_quota(student["pgpid"])
 
 @api_router.get("/student/requests/{request_id}")
 async def my_request_detail(request_id: str, student=Depends(require_student)):
@@ -592,16 +651,7 @@ async def my_request_detail(request_id: str, student=Depends(require_student)):
 
 @api_router.post("/student/requests/{request_id}/cancel")
 async def cancel_request(request_id: str, student=Depends(require_student)):
-    pgpid = student["pgpid"]
-    req = await db.requests.find_one({"request_id": request_id}, {"_id": 0})
-    if not req or req["student_pgpid"] != pgpid:
-        raise HTTPException(status_code=403, detail="Access denied")
-    if req["status"] in TERMINAL_STATUSES or req["status"] in ("APPROVED_PENDING_EXECUTION",):
-        raise HTTPException(status_code=400, detail="This request can no longer be cancelled.")
-    add_history(req, "CANCELLED", pgpid, "Cancelled by student")
-    await db.requests.update_one({"request_id": request_id}, {"$set": {"status": req["status"], "updated_at": req["updated_at"], "history": req["history"]}})
-    await audit("CANCEL", pgpid, "cancelled request", request_id)
-    return {"ok": True}
+    raise HTTPException(status_code=403, detail="Requests cannot be withdrawn once submitted.")
 
 # ---- Notifications & swap response ----
 @api_router.get("/student/notifications")

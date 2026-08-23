@@ -1,0 +1,25 @@
+{
+  "summary": "Iteration 5 (quotas + non-blocking clash + no-withdrawal). Backend: new /app/backend/tests/test_termv_iter5.py = 17/17 PASS. Frontend: end-to-end verified against preview URL — quota labels 'Add 0/1 · Drop 0/1', '0/2 used' etc. on each type card; after exhausting ADD via API, both ADD and ADD_DROP cards are disabled and show red 'Limit reached' with [data-testid=limit-ADD] / limit-ADD_DROP (click on disabled card is blocked); combined credit+clash warning box [data-testid=request-warning] renders both bullets; Submit opens [data-testid=warning-confirm-dialog] with Go Back / Submit Anyway; Submit Anyway persists the request; student detail page shows [data-testid=detail-clash-note] and NO 'Cancel Request' button (replaced with 'Requests cannot be withdrawn once submitted.'); admin dialog shows [data-testid=admin-clash-note] and [data-testid=admin-credit-note].",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_termv_iter5.py",
+    "/app/test_reports/pytest/iter5_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "REQUEST_LIMITS constants (server.py:440) and QUOTA_EXCLUDE_STATUSES combine cleanly; get_request_quota correctly excludes REJECTED/PARTNER_REJECTED/CANCELLED — verified by test_rejected_does_not_consume.",
+    "compute_clash_note (server.py:455-471) correctly guards against 'Not timetabled' / '—' and uses exclude_course_id to skip the given-up / same-course when checking swaps — verified with course-swap and section-swap paths.",
+    "cancel_request endpoint (server.py:652-654) unconditionally raises 403 regardless of caller/status — matches spec; note that this endpoint could be removed from the API surface entirely in a future cleanup since it's a permanent 403.",
+    "Frontend SubmitRequest.js properly disables the card via SelectItem-style `disabled` prop and shows the lock badge conditionally (line ~176); ADD_DROP correctly reflects either ADD or DROP being exhausted.",
+    "server.py is now 1184 lines — carryover recommendation from iter 4 to modularise routers still stands."
+  ],
+  "updated_files": ["/app/backend/tests/test_termv_iter5.py"],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% (5/5 UI surfaces)"},
+  "test_credentials": "Bearer stu_real (PGP41071) / stu_pgp41473 (PGP41473) / admintest_session — see /app/memory/test_credentials.md.",
+  "seed_data_creation": "Tests create + directly db.requests.delete_many-clean their own docs; PGP41071 requests were purged after run (verified 0 remaining).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_termv_iter5.py -v -n 0. Key testids added this iteration: limit-<TYPE> (ADD|DROP|ADD_DROP|COURSE_SWAP|SECTION_SWAP), request-warning, warning-confirm-dialog, warning-confirm-submit, warning-confirm-cancel, detail-clash-note, admin-clash-note. Cancel endpoint is now permanently 403 — do NOT rely on POST /student/requests/{id}/cancel for cleanup in future tests; delete via Mongo instead (db.requests.delete_many({'student_pgpid': ...})). Section-swap payload key is `my_section_id` (not `current_section_id`).",
+  "rca of the issue": "N/A — no critical bugs found this iteration."
+}

@@ -5,7 +5,6 @@ import api from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, REQUEST_TYPE_LABELS, STATUS_LABELS } from "@/components/StatusBadge";
-import { toast } from "sonner";
 import { ArrowLeft, CircleDot } from "lucide-react";
 
 export default function RequestDetail() {
@@ -16,16 +15,7 @@ export default function RequestDetail() {
   const load = () => api.get(`/student/requests/${id}`).then((r) => setReq(r.data)).catch(() => navigate("/requests"));
   useEffect(() => { load(); }, [id]);
 
-  const cancel = async () => {
-    try {
-      await api.post(`/student/requests/${id}/cancel`);
-      toast.success("Request cancelled");
-      load();
-    } catch (e) { toast.error(e?.response?.data?.detail || "Could not cancel"); }
-  };
-
   if (!req) return <Layout title="Request Details"><div /></Layout>;
-  const canCancel = !["REJECTED", "PARTNER_REJECTED", "CANCELLED", "EXECUTED", "APPROVED_PENDING_EXECUTION"].includes(req.status);
 
   return (
     <Layout title="Request Details">
@@ -61,13 +51,11 @@ export default function RequestDetail() {
                 <p><span className="text-muted-foreground">Partner confirmation:</span> {req.swap.partner_confirmed === true ? "Accepted" : req.swap.partner_confirmed === false ? "Rejected" : "Pending"}</p>
               </div>
             )}
+            {req.credit_note && <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">⚠ {req.credit_note}</p>}
+            {req.clash_note && <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2" data-testid="detail-clash-note">⚠ {req.clash_note}</p>}
             {req.comment && <p className="text-sm"><span className="text-muted-foreground">Your comment:</span> {req.comment}</p>}
             {req.admin_comment && <p className="text-sm"><span className="text-muted-foreground">Admin comment:</span> {req.admin_comment}</p>}
-            {canCancel && (
-              <Button variant="outline" data-testid="cancel-request-button" className="text-red-600 border-red-200 hover:bg-red-50" onClick={cancel}>
-                Cancel Request
-              </Button>
-            )}
+            <p className="text-xs text-muted-foreground">Requests cannot be withdrawn once submitted.</p>
           </CardContent>
         </Card>
 
