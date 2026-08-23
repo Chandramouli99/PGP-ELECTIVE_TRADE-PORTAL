@@ -48,6 +48,16 @@ export default function AdminRequests() {
     } catch (e) { toast.error(e?.response?.data?.detail || "Action failed"); }
   };
 
+  const download = async (path, filename) => {
+    try {
+      const res = await api.get(path, { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename; a.click();
+      URL.revokeObjectURL(url);
+    } catch { toast.error("Download failed"); }
+  };
+
   const isSwap = selected?.swap;
   const canApprove = selected && (!isSwap || selected.status === "BOTH_CONFIRMED");
   const canExecute = selected?.status === "APPROVED_PENDING_EXECUTION";
@@ -73,8 +83,11 @@ export default function AdminRequests() {
             {ALL_STATUSES.map((s) => <SelectItem key={s} value={s}>{s.replace(/_/g," ")}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Button data-testid="export-excel-button" className="bg-accent hover:bg-accent/90 text-white" onClick={() => window.open(`${API}/admin/export`, "_blank")}>
-          <Download className="h-4 w-4 mr-2" /> Download Requests as Excel
+        <Button data-testid="export-excel-button" className="bg-accent hover:bg-accent/90 text-white" onClick={() => download("/admin/export", "course_change_requests.xlsx")}>
+          <Download className="h-4 w-4 mr-2" /> Download Requests
+        </Button>
+        <Button data-testid="export-executed-button" variant="outline" onClick={() => download("/admin/export/executed", "executed_changes.xlsx")}>
+          <Download className="h-4 w-4 mr-2" /> Download Executed Changes
         </Button>
       </div>
 

@@ -1,0 +1,27 @@
+{
+  "summary": "Iteration 7 (EXECUTION -> enrollment mutations + Executed Excel export + Trading Board dialog redesign). Backend: /app/backend/tests/test_termv_iter7.py = 11/11 PASS. Verified: (1) ADD executed inserts enrollment row + course appears in /student/dashboard AND /student/timetable; (2) DROP executed deletes enrollment; (3) ADD_DROP executed removes drop AND inserts add; (4) approval alone (APPROVED_PENDING_EXECUTION) does NOT mutate enrollments — only the 'executed' decision does; (5) executed on non-approved request => 400 'Only approved requests can be marked executed'; (6) SECTION_SWAP (Beh.Fin POST-A <-> POST-B) executed swaps BOTH students' section rows; (7) COURSE_SWAP (ACDM <-> BPIM-J, both 1.0-credit) executed leaves initiator holding wanted course and partner holding offered course; (8) GET /admin/export/executed returns spreadsheetml with header row exactly [PGPID, Student Name, Change, Course, From Section, To Section, Request ID, Executed At] and includes rows for freshly-executed requests; (9) student token => 403 on /admin/export/executed; (10) GET /admin/export still works; (11) POST /admin/import/termv with /tmp/termv.xlsx succeeds and reloads master data. Frontend: /trading redesign verified for stu_real — 'Create Your Own Case' button (data-testid=open-case-editor-button) is prominent, board 'Open Cases (n)' shown first, chips render 0 outside dialog / 7 drop + 32 add chips INSIDE dialog after click, save closes dialog and card shows (You), button flips to 'Edit My Case', delete-case-button visible in edit mode. /admin/requests shows both export buttons: 'Download Requests' (data-testid=export-excel-button) and 'Download Executed Changes' (data-testid=export-executed-button). Cleanup: setup/teardown per test class restores enrollments; module teardown also re-runs POST /admin/import/termv from /tmp/termv.xlsx to fully reset master data; residual requests for PGP41071 & PGP41034 = 0; window OPEN + trading ENABLED confirmed at end.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_termv_iter7.py",
+    "/app/test_reports/pytest/iter7_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "apply_execution() (server.py ~L774-797) correctly orders DROP-before-ADD for ADD_DROP, and for ADD uses upsert semantics (update_one section if course row exists, else insert) — matches spec.",
+    "apply_execution() for swaps uses update_one on the exact (course_id, section_id) key — if source enrollment row is missing (data drift), it is a silent no-op with no warning logged. Consider logging a WARN/AUDIT entry so admins notice partial swap executions.",
+    "admin_decision only guards executed->'must be APPROVED_PENDING_EXECUTION' but does NOT re-check that partner still owns the target section at execute time. If the partner independently changed section between BOTH_CONFIRMED and executed, apply_execution silently drops that side of the swap. Low risk given single-window flow, but worth an integrity check.",
+    "admin_export_executed (server.py ~L951-977) emits 4 rows for a swap (SWAP OUT + SWAP IN for both students) which matches spec, but header order in export is fixed by the columns= kwarg to DataFrame — good.",
+    "server.py is now 1371 lines — modularisation still recommended (routers: student/admin/trading/swaps/execution).",
+    "TradingBoard.js dialog cleanly separates board from editor; state (dropSel/addSel/note) persists across opens so user can quickly re-edit — good UX.",
+    "AdminRequests.js 'export-executed-button' opens the URL directly with window.open — this only works because the browser sends session cookie; users who authenticated via bearer-only (like our tests) would 401 on that download. Consider proxying through the API client (blob download) for parity."
+  ],
+  "updated_files": ["/app/backend/tests/test_termv_iter7.py", "/app/test_reports/iteration_7.json"],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (all surfaces verified)"},
+  "test_credentials": "Bearer stu_real (PGP41071) / admintest_session / stu_41034_iter7 (PGP41034 partner session, cleaned up post-run). See /app/memory/test_credentials.md.",
+  "seed_data_creation": "Injected user + user_sessions row for PGP41034 with session_token=stu_41034_iter7 (deleted in module teardown). Per-test class inserts/restores enrollments; module teardown re-runs POST /admin/import/termv to fully reset master (courses/sections/enrollments) to the /tmp/termv.xlsx snapshot.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "IMPORTANT: /admin/import/termv rewrites all course_ids/section_ids with fresh uuids on each run — DO NOT hardcode IDs. Use lookup helpers (course_by_code/section_by) which query Mongo at test time. Swap partner response endpoint expects {action: 'accept'|'reject'} (not {accept: bool}). Course-swap credit check requires give.credits == want.credits. PGP41034 has BPIM-J & Beh.Fin POST-B (compatible with PGP41071 for course & section swaps respectively). Tests self-cleanup + belt-and-braces re-import termv at module teardown.",
+  "rca of the issue": "N/A"
+}

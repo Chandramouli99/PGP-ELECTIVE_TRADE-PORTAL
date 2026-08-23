@@ -49,6 +49,13 @@ Secure request-collection & administration system for PGP course Add/Drop, Cours
 - Trading Board (public marketplace): students post one editable "case" — courses they want to DROP (from current) and ADD (not owned) + optional note; posts show Name + PGPID to all logged-in students (informational only; actual swaps via existing flow). Create/edit/delete own case. Visible only when request window open AND admin toggle on. Admin page: enable/disable toggle + view/remove any post. No capacity/strength exposed.
 - Verified: iter6 15/15 backend + all frontend surfaces pass, zero issues.
 
+## Update — 2026-08-23 (execution applies to enrollments + executed export + trading UX)
+- Marking a request EXECUTED now applies the actual enrollment change (ADD inserts, DROP removes, ADD+DROP both, COURSE/SECTION swaps exchange both students' rows) → reflects immediately in student Current Courses + Weekly Timetable. Approval alone still does NOT change enrollments; execution is the manual final step.
+- Admin "Download Executed Changes" Excel (PGPID, Name, Change ADD/DROP/SWAP IN/OUT, Course, From/To Section, Request ID, Executed At). Both exports now download via the API client (Bearer) for reliability.
+- Master sheet re-upload (Term V workbook import) continues to refresh courses/sections/enrollments/timetable.
+- Trading Board redesigned: open cases shown first with a prominent "Create Your Own Case" button; the drop/add course chip editor now opens in a dialog (no longer dominates the page).
+- Verified: iter7 11/11 backend + all frontend surfaces pass, zero issues.
+
 ## Update — 2026-08-23 (Term V feature addition)
 - Added 2nd admin email: secy.academics@iiml.ac.in (both admins in allowlist).
 - Term V consolidated .xlsx importer (POST /admin/import/termv): parses "Courses & Sections" (credits/area) + "Students by Section" (students/sections/schedule/enrollments); one-click load, replaces master data. Real data loaded: 453 students, 39 courses, 49 sections, 2663 enrollments.

@@ -771,6 +771,31 @@ class DecisionInput(BaseModel):
     decision: str  # approve | reject | executed | under_review
     comment: Optional[str] = None
 
+async def apply_execution(req):
+    """Apply the actual enrollment change when a request is marked EXECUTED."""
+    pgpid = req["student_pgpid"]
+    if req.get("swap"):
+        sw = req["swap"]; partner = sw["partner_pgpid"]
+        ic, ir = sw["initiator_current"], sw["initiator_requested"]
+        pc, pr = sw["partner_current"], sw["partner_requested"]
+        await db.enrollments.update_one(
+            {"pgpid": pgpid, "course_id": ic["course_id"], "section_id": ic["section_id"]},
+            {"$set": {"course_id": ir["course_id"], "section_id": ir["section_id"]}})
+        await db.enrollments.update_one(
+            {"pgpid": partner, "course_id": pc["course_id"], "section_id": pc["section_id"]},
+            {"$set": {"course_id": pr["course_id"], "section_id": pr["section_id"]}})
+    else:
+        for a in req.get("actions", []):
+            if a["action"] == "DROP":
+                await db.enrollments.delete_one({"pgpid": pgpid, "course_id": a["course_id"], "section_id": a["section_id"]})
+        for a in req.get("actions", []):
+            if a["action"] == "ADD":
+                existing = await db.enrollments.find_one({"pgpid": pgpid, "course_id": a["course_id"]}, {"_id": 0})
+                if existing:
+                    await db.enrollments.update_one({"pgpid": pgpid, "course_id": a["course_id"]}, {"$set": {"section_id": a["section_id"]}})
+                else:
+                    await db.enrollments.insert_one({"pgpid": pgpid, "course_id": a["course_id"], "section_id": a["section_id"]})
+
 @api_router.post("/admin/requests/{request_id}/decision")
 async def admin_decision(request_id: str, payload: DecisionInput, admin=Depends(require_admin)):
     req = await db.requests.find_one({"request_id": request_id}, {"_id": 0})
@@ -790,7 +815,8 @@ async def admin_decision(request_id: str, payload: DecisionInput, admin=Depends(
     elif d == "executed":
         if status != "APPROVED_PENDING_EXECUTION":
             raise HTTPException(status_code=400, detail="Only approved requests can be marked executed.")
-        add_history(req, "EXECUTED", admin["email"], payload.comment or "Marked executed")
+        await apply_execution(req)
+        add_history(req, "EXECUTED", admin["email"], payload.comment or "Executed — enrollment updated")
     else:
         raise HTTPException(status_code=400, detail="Invalid decision")
     req["admin_comment"] = payload.comment
@@ -921,6 +947,34 @@ async def admin_export(admin=Depends(require_admin)):
     await audit("EXPORT", admin["email"], f"exported {len(rows)} requests")
     return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                              headers={"Content-Disposition": "attachment; filename=course_change_requests.xlsx"})
+
+@api_router.get("/admin/export/executed")
+async def admin_export_executed(admin=Depends(require_admin)):
+    reqs = await db.requests.find({"status": "EXECUTED"}, {"_id": 0}).sort("updated_at", 1).to_list(20000)
+    rows = []
+    for r in reqs:
+        sw = r.get("swap")
+        if sw:
+            rows.append({"PGPID": r["student_pgpid"], "Student Name": r["student_name"], "Change": "SWAP OUT",
+                         "Course": sw["initiator_current"]["course_name"], "From Section": sw["initiator_current"]["section_name"], "To Section": "", "Request ID": r["request_id"], "Executed At": r["updated_at"]})
+            rows.append({"PGPID": r["student_pgpid"], "Student Name": r["student_name"], "Change": "SWAP IN",
+                         "Course": sw["initiator_requested"]["course_name"], "From Section": "", "To Section": sw["initiator_requested"]["section_name"], "Request ID": r["request_id"], "Executed At": r["updated_at"]})
+            rows.append({"PGPID": sw["partner_pgpid"], "Student Name": sw["partner_name"], "Change": "SWAP OUT",
+                         "Course": sw["partner_current"]["course_name"], "From Section": sw["partner_current"]["section_name"], "To Section": "", "Request ID": r["request_id"], "Executed At": r["updated_at"]})
+            rows.append({"PGPID": sw["partner_pgpid"], "Student Name": sw["partner_name"], "Change": "SWAP IN",
+                         "Course": sw["partner_requested"]["course_name"], "From Section": "", "To Section": sw["partner_requested"]["section_name"], "Request ID": r["request_id"], "Executed At": r["updated_at"]})
+        else:
+            for a in r.get("actions", []):
+                rows.append({"PGPID": r["student_pgpid"], "Student Name": r["student_name"], "Change": a["action"],
+                             "Course": a["course_name"], "From Section": a["section_name"] if a["action"] == "DROP" else "", "To Section": a["section_name"] if a["action"] == "ADD" else "", "Request ID": r["request_id"], "Executed At": r["updated_at"]})
+    df = pd.DataFrame(rows, columns=["PGPID", "Student Name", "Change", "Course", "From Section", "To Section", "Request ID", "Executed At"])
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Executed Changes")
+    buf.seek(0)
+    await audit("EXPORT_EXECUTED", admin["email"], f"exported {len(rows)} executed change rows")
+    return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": "attachment; filename=executed_changes.xlsx"})
 
 # ---- Master data import ----
 def read_upload_to_df(content: bytes, filename: str) -> pd.DataFrame:
