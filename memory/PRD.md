@@ -59,6 +59,13 @@ Secure request-collection & administration system for PGP course Add/Drop, Cours
 ## Update — 2026-08-23 (trading add = section-level)
 - Trading Board "want to add" is now section-level: each option is a course+section chip. Students can list a DIFFERENT section of a course they already hold (enables section-swap discovery); listing their exact current section is rejected. Board/admin views show add entries as "Course · Sec X". Stored as add_section_ids. Verified via API (post + 400 guard) and compile.
 
+## Update — 2026-08-24 (credit-sum swaps + Full Timetable + admin Clear-All Trading)
+- Credit-sum swaps: COURSE_SWAP now supports many-to-many where sum of give-credits must equal sum of get-credits (e.g. two 0.5cr → one 1.0cr). Stored in swap.initiator_gives[]/initiator_gets[] (legacy single fields still filled for back-compat via swap_pairs helper). Added symmetric guard: partner must not already hold a course the initiator offers.
+- Full Timetable: GET /api/student/timetable/all + student Full Timetable page lists all sections with schedule + rosters, verified NO capacity/strength leak.
+- Admin Clear-All Trading: DELETE /api/admin/trading wipes all posts (admin-only, 403 for students); AdminTrading.js "Clear All Cases" button with AlertDialog confirmation.
+- Fixed RequestDetail/Notifications/MyRequests/AdminRequests/AdminSwaps to render ALL courses in a credit-sum swap (previously showed only the first). Fixed RequestDetail useEffect missing-dep warning (useCallback).
+- Verified: iter8 10/10 backend + 4/4 frontend surfaces pass, zero issues.
+
 ## Update — 2026-08-23 (Term V feature addition)
 - Added 2nd admin email: secy.academics@iiml.ac.in (both admins in allowlist).
 - Term V consolidated .xlsx importer (POST /admin/import/termv): parses "Courses & Sections" (credits/area) + "Students by Section" (students/sections/schedule/enrollments); one-click load, replaces master data. Real data loaded: 453 students, 39 courses, 49 sections, 2663 enrollments.

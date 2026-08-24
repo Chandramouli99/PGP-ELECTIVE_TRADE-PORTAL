@@ -17,7 +17,11 @@ export default function MyRequests() {
   }, []);
 
   const summarize = (r) => {
-    if (r.swap) return `${r.swap.initiator_current.course_name} → ${r.swap.initiator_requested.course_name} (Sec ${r.swap.initiator_requested.section_name})`;
+    if (r.swap) {
+      const g = r.swap.initiator_gives || (r.swap.initiator_current ? [r.swap.initiator_current] : []);
+      const t = r.swap.initiator_gets || (r.swap.initiator_requested ? [r.swap.initiator_requested] : []);
+      return `${g.map((x) => x.course_name).join(" + ")} → ${t.map((x) => `${x.course_name} (Sec ${x.section_name})`).join(" + ")}`;
+    }
     return r.actions.map((a) => `${a.action === "ADD" ? "Add" : "Drop"} ${a.course_name} ${a.section_name}`).join(", ");
   };
 

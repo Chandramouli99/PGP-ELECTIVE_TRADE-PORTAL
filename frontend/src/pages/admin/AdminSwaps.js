@@ -44,7 +44,7 @@ export default function AdminSwaps() {
                   <TableCell>{REQUEST_TYPE_LABELS[r.request_type]}</TableCell>
                   <TableCell>{r.student_pgpid}</TableCell>
                   <TableCell>{r.swap.partner_pgpid}</TableCell>
-                  <TableCell className="text-xs">{r.swap.initiator_current.course_name} {r.swap.initiator_current.section_name} ⇄ {r.swap.initiator_requested.course_name} {r.swap.initiator_requested.section_name}</TableCell>
+                  <TableCell className="text-xs">{(r.swap.initiator_gives || [r.swap.initiator_current]).map((x) => `${x.course_name} ${x.section_name}`).join(" + ")} ⇄ {(r.swap.initiator_gets || [r.swap.initiator_requested]).map((x) => `${x.course_name} ${x.section_name}`).join(" + ")}</TableCell>
                   <TableCell>{r.swap.partner_confirmed===true?"Accepted":r.swap.partner_confirmed===false?"Rejected":"Pending"}</TableCell>
                   <TableCell><StatusBadge status={r.status} /></TableCell>
                   <TableCell>

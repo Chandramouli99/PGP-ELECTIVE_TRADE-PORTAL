@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Layout from "@/components/Layout";
 import api from "@/lib/api";
@@ -14,11 +14,11 @@ export default function RequestDetail() {
   const [req, setReq] = useState(null);
   const [windowOpen, setWindowOpen] = useState(false);
 
-  const load = () => api.get(`/student/requests/${id}`).then((r) => setReq(r.data)).catch(() => navigate("/requests"));
+  const load = useCallback(() => api.get(`/student/requests/${id}`).then((r) => setReq(r.data)).catch(() => navigate("/requests")), [id, navigate]);
   useEffect(() => {
     load();
     api.get("/window").then((r) => setWindowOpen(r.data.is_open)).catch(() => {});
-  }, [id]);
+  }, [id, load]);
 
   const withdraw = async () => {
     try {
@@ -61,8 +61,18 @@ export default function RequestDetail() {
             {req.swap && (
               <div className="rounded-md bg-secondary p-4 text-sm space-y-1">
                 <p><span className="text-muted-foreground">Swap partner:</span> <span className="font-medium">{req.swap.partner_name} ({req.swap.partner_pgpid})</span></p>
-                <p><span className="text-muted-foreground">You give:</span> {req.swap.initiator_current.course_name} — Section {req.swap.initiator_current.section_name}</p>
-                <p><span className="text-muted-foreground">You get:</span> {req.swap.initiator_requested.course_name} — Section {req.swap.initiator_requested.section_name}</p>
+                <div data-testid="swap-give-list">
+                  <span className="text-muted-foreground">You give:</span>
+                  {(req.swap.initiator_gives || (req.swap.initiator_current ? [req.swap.initiator_current] : [])).map((g, i) => (
+                    <span key={i} className="ml-1 font-medium">{g.course_name} — Section {g.section_name}{i < ((req.swap.initiator_gives || []).length - 1) ? "," : ""}</span>
+                  ))}
+                </div>
+                <div data-testid="swap-get-list">
+                  <span className="text-muted-foreground">You get:</span>
+                  {(req.swap.initiator_gets || (req.swap.initiator_requested ? [req.swap.initiator_requested] : [])).map((g, i) => (
+                    <span key={i} className="ml-1 font-medium">{g.course_name} — Section {g.section_name}{i < ((req.swap.initiator_gets || []).length - 1) ? "," : ""}</span>
+                  ))}
+                </div>
                 <p><span className="text-muted-foreground">Partner confirmation:</span> {req.swap.partner_confirmed === true ? "Accepted" : req.swap.partner_confirmed === false ? "Rejected" : "Pending"}</p>
               </div>
             )}

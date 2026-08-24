@@ -36,8 +36,10 @@ export default function AdminRequests() {
     return true;
   }), [reqs, q, typeF, statusF]);
 
-  const courseOf = (r) => r.swap ? r.swap.initiator_current.course_name : (r.actions?.map(a=>a.course_name).join(", ") || "—");
-  const sectionOf = (r) => r.swap ? `${r.swap.initiator_current.section_name}→${r.swap.initiator_requested.section_name}` : (r.actions?.map(a=>a.section_name).join(", ") || "—");
+  const swapGives = (sw) => sw.initiator_gives || (sw.initiator_current ? [sw.initiator_current] : []);
+  const swapGets = (sw) => sw.initiator_gets || (sw.initiator_requested ? [sw.initiator_requested] : []);
+  const courseOf = (r) => r.swap ? swapGives(r.swap).map((x) => x.course_name).join(" + ") : (r.actions?.map(a=>a.course_name).join(", ") || "—");
+  const sectionOf = (r) => r.swap ? `${swapGives(r.swap).map((x) => x.section_name).join("+")}→${swapGets(r.swap).map((x) => x.section_name).join("+")}` : (r.actions?.map(a=>a.section_name).join(", ") || "—");
 
   const decide = async (decision) => {
     try {
@@ -139,7 +141,7 @@ export default function AdminRequests() {
                 {selected.swap && (
                   <div className="rounded-md bg-secondary p-3 space-y-1">
                     <p>Partner: <span className="font-medium">{selected.swap.partner_name} ({selected.swap.partner_pgpid})</span></p>
-                    <p>Initiator: {selected.swap.initiator_current.course_name} {selected.swap.initiator_current.section_name} → {selected.swap.initiator_requested.course_name} {selected.swap.initiator_requested.section_name}</p>
+                    <p>Initiator: {swapGives(selected.swap).map((x) => `${x.course_name} ${x.section_name}`).join(" + ")} → {swapGets(selected.swap).map((x) => `${x.course_name} ${x.section_name}`).join(" + ")}</p>
                     <p>Partner confirmation: <span className="font-medium">{selected.swap.partner_confirmed===true?"Accepted":selected.swap.partner_confirmed===false?"Rejected":"Pending"}</span></p>
                   </div>
                 )}

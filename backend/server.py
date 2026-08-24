@@ -586,6 +586,8 @@ async def submit_request(payload: RequestInput, student=Depends(require_student)
             for g in gives:
                 if not g["course_id"] or not await owns(g["course_id"], g["section_id"]):
                     raise HTTPException(status_code=400, detail="You are not enrolled in a course/section you are offering.")
+                if await db.enrollments.find_one({"pgpid": partner_pgpid, "course_id": g["course_id"]}, {"_id": 0}):
+                    raise HTTPException(status_code=400, detail="Your swap partner already holds a course you are offering.")
             for g in gets:
                 if not g["course_id"]:
                     raise HTTPException(status_code=400, detail="Invalid course selected to receive.")
@@ -1397,6 +1399,12 @@ async def admin_trading_settings(payload: TradingSettingsInput, admin=Depends(re
     await db.settings.update_one({"key": "trading"}, {"$set": {"enabled": payload.enabled}}, upsert=True)
     await audit("TRADING_SETTINGS", admin["email"], f"trading enabled={payload.enabled}")
     return {"ok": True, "enabled": payload.enabled}
+
+@api_router.delete("/admin/trading")
+async def admin_clear_trading(admin=Depends(require_admin)):
+    res = await db.trading_posts.delete_many({})
+    await audit("TRADING_ADMIN_CLEAR", admin["email"], f"cleared all trading posts ({res.deleted_count})")
+    return {"ok": True, "deleted": res.deleted_count}
 
 @api_router.delete("/admin/trading/{post_id}")
 async def admin_delete_trading(post_id: str, admin=Depends(require_admin)):

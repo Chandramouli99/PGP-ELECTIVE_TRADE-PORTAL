@@ -40,10 +40,8 @@ export default function Notifications() {
                   <CardContent className="p-5">
                     <p className="font-medium mb-2">🔄 {s.swap.partner_pgpid === undefined ? "" : ""}{s.student_pgpid} has requested a {s.swap.kind.toLowerCase()} swap with you.</p>
                     <div className="rounded-md bg-secondary p-4 text-sm space-y-1 mb-3">
-                      <p><span className="text-muted-foreground">Course:</span> {s.swap.partner_current.course_name}</p>
-                      <p><span className="text-muted-foreground">Your current:</span> {s.swap.partner_current.course_name} — Section {s.swap.partner_current.section_name}</p>
-                      <p><span className="text-muted-foreground">Requested from you:</span> {s.swap.partner_requested.course_name} — Section {s.swap.partner_requested.section_name}</p>
-                      <p><span className="text-muted-foreground">{s.student_pgpid} gives you:</span> {s.swap.initiator_current.course_name} — Section {s.swap.initiator_current.section_name}</p>
+                      <p><span className="text-muted-foreground">You give:</span> {(s.swap.initiator_gets || (s.swap.partner_current ? [s.swap.partner_current] : [])).map((x) => `${x.course_name} — Section ${x.section_name}`).join(", ")}</p>
+                      <p><span className="text-muted-foreground">{s.student_pgpid} gives you:</span> {(s.swap.initiator_gives || (s.swap.partner_requested ? [s.swap.partner_requested] : [])).map((x) => `${x.course_name} — Section ${x.section_name}`).join(", ")}</p>
                     </div>
                     <div className="flex gap-3">
                       <Button size="sm" data-testid={`accept-swap-${s.request_id}`} className="bg-emerald-600 hover:bg-emerald-700" onClick={() => respond(s.request_id, "accept")}>

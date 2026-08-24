@@ -5,6 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Store, Trash2, UserRound } from "lucide-react";
 
@@ -30,6 +34,14 @@ export default function AdminTrading() {
     } catch (e) { toast.error(e?.response?.data?.detail || "Remove failed"); }
   };
 
+  const clearAll = async () => {
+    try {
+      const r = await api.delete("/admin/trading");
+      toast.success(`Cleared ${r.data.deleted} case${r.data.deleted === 1 ? "" : "s"}`);
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Clear failed"); }
+  };
+
   if (!data) return <Layout title="Trading Board"><div /></Layout>;
 
   return (
@@ -50,7 +62,32 @@ export default function AdminTrading() {
         </Card>
 
         <div>
-          <h3 className="text-xl font-semibold mb-3">All Posted Cases ({data.posts.length})</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xl font-semibold">All Posted Cases ({data.posts.length})</h3>
+            {data.posts.length > 0 && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button size="sm" variant="outline" data-testid="clear-all-trading-button" className="text-red-600 border-red-200 hover:bg-red-50">
+                    <Trash2 className="h-3.5 w-3.5 mr-2" /> Clear All Cases
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent data-testid="clear-all-trading-dialog">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Clear all trading cases?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This permanently removes all {data.posts.length} posted case{data.posts.length === 1 ? "" : "s"} from the trading board. This cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel data-testid="clear-all-cancel">Cancel</AlertDialogCancel>
+                    <AlertDialogAction data-testid="clear-all-confirm" className="bg-red-600 hover:bg-red-700" onClick={clearAll}>
+                      Clear All
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+          </div>
           {data.posts.length === 0 ? (
             <p className="text-sm text-muted-foreground">No cases posted.</p>
           ) : (
