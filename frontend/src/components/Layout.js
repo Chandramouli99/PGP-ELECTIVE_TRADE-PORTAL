@@ -8,12 +8,13 @@ import { SupportContact } from "@/components/SupportContact";
 import {
   LayoutDashboard, FilePlus2, ListChecks, Bell, User, LogOut,
   Inbox, ArrowLeftRight, Users, GraduationCap, Layers, Gauge,
-  CalendarClock, ScrollText, UploadCloud, GitCompareArrows, CalendarDays, TrendingUp, Menu, Clock, Store,
+  CalendarClock, ScrollText, UploadCloud, GitCompareArrows, CalendarDays, TrendingUp, Menu, Clock, Store, LayoutGrid,
 } from "lucide-react";
 
 const STUDENT_NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/timetable", label: "Timetable", icon: CalendarDays },
+  { to: "/timetable/all", label: "Full Timetable", icon: LayoutGrid },
   { to: "/submit", label: "Submit Request", icon: FilePlus2 },
   { to: "/trading", label: "Trading Board", icon: Store },
   { to: "/requests", label: "My Requests", icon: ListChecks },

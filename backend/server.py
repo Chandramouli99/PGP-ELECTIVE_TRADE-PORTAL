@@ -333,6 +333,30 @@ async def available_courses(student=Depends(require_student)):
                        "credits": c.get("credits"), "area": c.get("area"), "sections": secs})
     return sorted(result, key=lambda x: x["course_name"])
 
+@api_router.get("/student/timetable/all")
+async def full_timetable(student=Depends(require_student)):
+    cmap, smap = await build_course_section_maps()
+    secs = await db.sections.find({}, {"_id": 0, "min_capacity": 0, "max_capacity": 0}).to_list(4000)
+    out = []
+    for s in secs:
+        c = cmap.get(s["course_id"], {})
+        out.append({"section_id": s["section_id"], "course_code": c.get("course_code"), "course_name": c.get("course_name"),
+                    "section_name": s["section_name"], "day": s.get("day"), "time_slot": s.get("time_slot"),
+                    "mid_tag": s.get("mid_tag"), "credits": c.get("credits")})
+    return {"sections": out}
+
+@api_router.get("/student/section/{section_id}/students")
+async def section_students(section_id: str, student=Depends(require_student)):
+    s = await db.sections.find_one({"section_id": section_id}, {"_id": 0})
+    if not s:
+        raise HTTPException(status_code=404, detail="Section not found")
+    cmap, _ = await build_course_section_maps()
+    enr = await db.enrollments.find({"section_id": section_id}, {"_id": 0}).to_list(5000)
+    names = {st["pgpid"]: st["name"] for st in await db.students.find({}, {"_id": 0}).to_list(10000)}
+    roster = sorted([{"pgpid": e["pgpid"], "name": names.get(e["pgpid"], e["pgpid"])} for e in enr], key=lambda x: x["name"])
+    c = cmap.get(s["course_id"], {})
+    return {"course_name": c.get("course_name"), "course_code": c.get("course_code"), "section_name": s["section_name"], "students": roster}
+
 @api_router.get("/student/lookup-partner")
 async def lookup_partner(pgpid: str, student=Depends(require_student)):
     pgpid = pgpid.strip().upper()
@@ -356,9 +380,9 @@ async def get_student_active_courses(pgpid: str) -> set:
                 active.add(a["course_id"])
         sw = req.get("swap")
         if sw:
-            for key in ["initiator_current", "initiator_requested", "partner_current", "partner_requested"]:
-                reg = sw.get(key)
-                if reg and reg.get("course_id"):
+            gv, gt = swap_pairs(sw)
+            for reg in gv + gt:
+                if reg.get("course_id"):
                     active.add(reg["course_id"])
     return active
 
@@ -377,6 +401,8 @@ class RequestInput(BaseModel):
     give_section_id: Optional[str] = None
     want_course_id: Optional[str] = None
     want_section_id: Optional[str] = None
+    give_section_ids: Optional[List[str]] = None
+    want_section_ids: Optional[List[str]] = None
     # section swap: same course, own section -> requested section
     swap_course_id: Optional[str] = None
     my_section_id: Optional[str] = None
@@ -388,8 +414,19 @@ async def ensure_window_open():
     if not state["is_open"]:
         raise HTTPException(status_code=403, detail=state["message"])
 
-def new_request_base(student, request_type, comment):
-    return {
+def build_reg(section_id, cmap, smap):
+    s = smap.get(section_id) or {}
+    c = cmap.get(s.get("course_id"), {})
+    return {"course_id": s.get("course_id"), "section_id": section_id,
+            "course_name": c.get("course_name"), "section_name": s.get("section_name"),
+            "credits": c.get("credits"), "day": s.get("day"), "time_slot": s.get("time_slot")}
+
+def swap_pairs(sw):
+    gives = sw.get("initiator_gives") or ([sw["initiator_current"]] if sw.get("initiator_current") else [])
+    gets = sw.get("initiator_gets") or ([sw["initiator_requested"]] if sw.get("initiator_requested") else [])
+    return gives, gets
+
+def new_request_base(student, request_type, comment):    return {
         "request_id": f"R{uuid.uuid4().hex[:8].upper()}",
         "student_pgpid": student["pgpid"],
         "student_name": student["name"],
@@ -540,36 +577,36 @@ async def submit_request(payload: RequestInput, student=Depends(require_student)
             raise HTTPException(status_code=404, detail="Swap partner PGPID not found.")
 
         if rtype == "COURSE_SWAP":
-            # initiator gives own (give_course/section) -> wants partner's (want_course/section)
-            if not await owns(payload.give_course_id, payload.give_section_id):
-                raise HTTPException(status_code=400, detail="You are not enrolled in the course you are offering.")
-            partner_has = await db.enrollments.find_one({"pgpid": partner_pgpid, "course_id": payload.want_course_id, "section_id": payload.want_section_id}, {"_id": 0})
-            if not partner_has:
-                raise HTTPException(status_code=400, detail="Swap partner is not enrolled in the course you want.")
-            if payload.give_course_id == payload.want_course_id:
-                raise HTTPException(status_code=400, detail="Course swap must involve two different courses.")
-            already = await db.enrollments.find_one({"pgpid": pgpid, "course_id": payload.want_course_id}, {"_id": 0})
-            if already:
-                raise HTTPException(status_code=400, detail="You already have that course — you cannot request it in a swap.")
-            give_credits = cmap.get(payload.give_course_id, {}).get("credits")
-            want_credits = cmap.get(payload.want_course_id, {}).get("credits")
-            if give_credits is not None and want_credits is not None and give_credits != want_credits:
-                raise HTTPException(status_code=400, detail=f"Cross-credit swaps are not allowed — you are offering a {give_credits}-credit course but requesting a {want_credits}-credit course.")
-            await check_conflicts(pgpid, {payload.give_course_id, payload.want_course_id})
+            give_ids = payload.give_section_ids or ([payload.give_section_id] if payload.give_section_id else [])
+            want_ids = payload.want_section_ids or ([payload.want_section_id] if payload.want_section_id else [])
+            if not give_ids or not want_ids:
+                raise HTTPException(status_code=400, detail="Select at least one course to offer and one to receive.")
+            gives = [build_reg(sid, cmap, smap) for sid in give_ids]
+            gets = [build_reg(sid, cmap, smap) for sid in want_ids]
+            for g in gives:
+                if not g["course_id"] or not await owns(g["course_id"], g["section_id"]):
+                    raise HTTPException(status_code=400, detail="You are not enrolled in a course/section you are offering.")
+            for g in gets:
+                if not g["course_id"]:
+                    raise HTTPException(status_code=400, detail="Invalid course selected to receive.")
+                ph = await db.enrollments.find_one({"pgpid": partner_pgpid, "course_id": g["course_id"], "section_id": g["section_id"]}, {"_id": 0})
+                if not ph:
+                    raise HTTPException(status_code=400, detail="Your swap partner is not enrolled in a course/section you requested.")
+                if await db.enrollments.find_one({"pgpid": pgpid, "course_id": g["course_id"]}, {"_id": 0}):
+                    raise HTTPException(status_code=400, detail="You already have a course you are trying to receive.")
+            give_courses = {g["course_id"] for g in gives}; get_courses = {g["course_id"] for g in gets}
+            if give_courses & get_courses:
+                raise HTTPException(status_code=400, detail="Courses you offer and receive must be different.")
+            sg = round(sum(g["credits"] or 0 for g in gives), 1); sr = round(sum(g["credits"] or 0 for g in gets), 1)
+            if sg != sr:
+                raise HTTPException(status_code=400, detail=f"Total credits must match — you are offering {sg} and requesting {sr}.")
+            await check_conflicts(pgpid, give_courses | get_courses)
             req["swap"] = {
-                "kind": "COURSE",
-                "partner_pgpid": partner_pgpid,
-                "partner_name": partner["name"],
-                "initiator_current": {"course_id": payload.give_course_id, "section_id": payload.give_section_id,
-                                      "course_name": cmap[payload.give_course_id]["course_name"], "section_name": smap[payload.give_section_id]["section_name"]},
-                "initiator_requested": {"course_id": payload.want_course_id, "section_id": payload.want_section_id,
-                                        "course_name": cmap[payload.want_course_id]["course_name"], "section_name": smap[payload.want_section_id]["section_name"]},
-                "partner_current": {"course_id": payload.want_course_id, "section_id": payload.want_section_id,
-                                    "course_name": cmap[payload.want_course_id]["course_name"], "section_name": smap[payload.want_section_id]["section_name"]},
-                "partner_requested": {"course_id": payload.give_course_id, "section_id": payload.give_section_id,
-                                      "course_name": cmap[payload.give_course_id]["course_name"], "section_name": smap[payload.give_section_id]["section_name"]},
-                "initiator_confirmed": True,
-                "partner_confirmed": None,
+                "kind": "COURSE", "partner_pgpid": partner_pgpid, "partner_name": partner["name"],
+                "initiator_gives": gives, "initiator_gets": gets,
+                "initiator_current": gives[0], "initiator_requested": gets[0],
+                "partner_current": gets[0], "partner_requested": gives[0],
+                "initiator_confirmed": True, "partner_confirmed": None,
             }
         else:  # SECTION_SWAP
             course_id = payload.swap_course_id
@@ -581,20 +618,13 @@ async def submit_request(payload: RequestInput, student=Depends(require_student)
             if not partner_has:
                 raise HTTPException(status_code=400, detail="Swap partner is not in the section you requested.")
             await check_conflicts(pgpid, {course_id})
+            g = build_reg(payload.my_section_id, cmap, smap); r2 = build_reg(payload.requested_section_id, cmap, smap)
             req["swap"] = {
-                "kind": "SECTION",
-                "partner_pgpid": partner_pgpid,
-                "partner_name": partner["name"],
-                "initiator_current": {"course_id": course_id, "section_id": payload.my_section_id,
-                                      "course_name": cmap[course_id]["course_name"], "section_name": smap[payload.my_section_id]["section_name"]},
-                "initiator_requested": {"course_id": course_id, "section_id": payload.requested_section_id,
-                                        "course_name": cmap[course_id]["course_name"], "section_name": smap[payload.requested_section_id]["section_name"]},
-                "partner_current": {"course_id": course_id, "section_id": payload.requested_section_id,
-                                    "course_name": cmap[course_id]["course_name"], "section_name": smap[payload.requested_section_id]["section_name"]},
-                "partner_requested": {"course_id": course_id, "section_id": payload.my_section_id,
-                                      "course_name": cmap[course_id]["course_name"], "section_name": smap[payload.my_section_id]["section_name"]},
-                "initiator_confirmed": True,
-                "partner_confirmed": None,
+                "kind": "SECTION", "partner_pgpid": partner_pgpid, "partner_name": partner["name"],
+                "initiator_gives": [g], "initiator_gets": [r2],
+                "initiator_current": g, "initiator_requested": r2,
+                "partner_current": r2, "partner_requested": g,
+                "initiator_confirmed": True, "partner_confirmed": None,
             }
         add_history(req, "AWAITING_PARTNER_CONFIRMATION", pgpid, f"Swap request sent to {partner_pgpid}")
         # notification for partner
@@ -619,7 +649,12 @@ async def submit_request(payload: RequestInput, student=Depends(require_student)
         req["clash_note"] = await compute_clash_note(pgpid, cmap, smap, payload.add_section_id,
                                                      exclude_course_id=payload.drop_course_id if rtype == "ADD_DROP" else None)
     elif rtype == "COURSE_SWAP":
-        req["clash_note"] = await compute_clash_note(pgpid, cmap, smap, payload.want_section_id, exclude_course_id=payload.give_course_id)
+        notes = []
+        for g in (req.get("swap", {}) or {}).get("initiator_gets", []):
+            n = await compute_clash_note(pgpid, cmap, smap, g["section_id"])
+            if n:
+                notes.append(n)
+        req["clash_note"] = " ".join(notes) if notes else None
     elif rtype == "SECTION_SWAP":
         req["clash_note"] = await compute_clash_note(pgpid, cmap, smap, payload.requested_section_id, exclude_course_id=payload.swap_course_id)
 
@@ -776,14 +811,15 @@ async def apply_execution(req):
     pgpid = req["student_pgpid"]
     if req.get("swap"):
         sw = req["swap"]; partner = sw["partner_pgpid"]
-        ic, ir = sw["initiator_current"], sw["initiator_requested"]
-        pc, pr = sw["partner_current"], sw["partner_requested"]
-        await db.enrollments.update_one(
-            {"pgpid": pgpid, "course_id": ic["course_id"], "section_id": ic["section_id"]},
-            {"$set": {"course_id": ir["course_id"], "section_id": ir["section_id"]}})
-        await db.enrollments.update_one(
-            {"pgpid": partner, "course_id": pc["course_id"], "section_id": pc["section_id"]},
-            {"$set": {"course_id": pr["course_id"], "section_id": pr["section_id"]}})
+        gives, gets = swap_pairs(sw)
+        for reg in gives:
+            await db.enrollments.delete_one({"pgpid": pgpid, "course_id": reg["course_id"], "section_id": reg["section_id"]})
+        for reg in gets:
+            await db.enrollments.delete_one({"pgpid": partner, "course_id": reg["course_id"], "section_id": reg["section_id"]})
+        for reg in gets:
+            await db.enrollments.update_one({"pgpid": pgpid, "course_id": reg["course_id"]}, {"$set": {"section_id": reg["section_id"]}}, upsert=True)
+        for reg in gives:
+            await db.enrollments.update_one({"pgpid": partner, "course_id": reg["course_id"]}, {"$set": {"section_id": reg["section_id"]}}, upsert=True)
     else:
         for a in req.get("actions", []):
             if a["action"] == "DROP":
@@ -867,10 +903,13 @@ async def compute_capacity():
                 drops[a["section_id"]] = drops.get(a["section_id"], 0) + 1
         sw = r.get("swap")
         if sw:
-            # section change: partner moves reflected too; count net moves as add to requested, drop from current for both
-            for reg_from, reg_to in [(sw["initiator_current"], sw["initiator_requested"]), (sw["partner_current"], sw["partner_requested"])]:
-                drops[reg_from["section_id"]] = drops.get(reg_from["section_id"], 0) + 1
-                adds[reg_to["section_id"]] = adds.get(reg_to["section_id"], 0) + 1
+            gives, gets = swap_pairs(sw)
+            for reg in gives:
+                drops[reg["section_id"]] = drops.get(reg["section_id"], 0) + 1
+                adds[reg["section_id"]] = adds.get(reg["section_id"], 0) + 1
+            for reg in gets:
+                adds[reg["section_id"]] = adds.get(reg["section_id"], 0) + 1
+                drops[reg["section_id"]] = drops.get(reg["section_id"], 0) + 1
     rows = []
     for s in sorted(sections, key=lambda x: (cmap.get(x["course_id"], {}).get("course_code") or "", x["section_name"])):
         sid = s["section_id"]

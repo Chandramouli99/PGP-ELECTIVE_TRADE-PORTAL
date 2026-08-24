@@ -121,7 +121,7 @@ export default function SubmitRequest() {
       if (type === "ADD") { payload.add_course_id = form.add_course_id; payload.add_section_id = form.add_section_id; }
       if (type === "DROP") { const c = myCourses.find((x) => x.course_id === form.drop_course_id); payload.drop_course_id = form.drop_course_id; payload.drop_section_id = c?.section_id; }
       if (type === "ADD_DROP") { const c = myCourses.find((x) => x.course_id === form.drop_course_id); payload.drop_course_id = form.drop_course_id; payload.drop_section_id = c?.section_id; payload.add_course_id = form.add_course_id; payload.add_section_id = form.add_section_id; }
-      if (type === "COURSE_SWAP") { const mine = myCourses.find((x) => x.course_id === form.give_course_id); const want = partner?.courses.find((x) => x.course_id === form.want_course_id); payload.partner_pgpid = form.partner_pgpid; payload.give_course_id = form.give_course_id; payload.give_section_id = mine?.section_id; payload.want_course_id = form.want_course_id; payload.want_section_id = want?.section_id; }
+      if (type === "COURSE_SWAP") { payload.partner_pgpid = form.partner_pgpid; payload.give_section_ids = form.give_secs || []; payload.want_section_ids = form.want_secs || []; }
       if (type === "SECTION_SWAP") { const mine = myCourses.find((x) => x.course_id === form.swap_course_id); const pr = partner?.courses.find((x) => x.course_id === form.swap_course_id); payload.partner_pgpid = form.partner_pgpid; payload.swap_course_id = form.swap_course_id; payload.my_section_id = mine?.section_id; payload.requested_section_id = pr?.section_id; }
       await api.post("/student/requests", payload);
       toast.success("Your request has been submitted successfully.");
@@ -260,30 +260,33 @@ export default function SubmitRequest() {
               </div>
             )}
 
-            {type === "COURSE_SWAP" && partner && (
-              <>
-                <div className="space-y-2">
-                  <Label className="tiny-label">Your Course (you are offering)</Label>
-                  <Select onValueChange={(v) => { set("give_course_id", v); set("want_course_id", null); }}>
-                    <SelectTrigger data-testid="select-give-course"><SelectValue placeholder="Select your course to give up" /></SelectTrigger>
-                    <SelectContent>
-                      {myCourses.map((c) => (<SelectItem key={c.course_id} value={c.course_id}>{c.course_name} — Sec {c.section_name} · {cr(c.credits)}</SelectItem>))}
-                    </SelectContent>
-                  </Select>
+            {type === "COURSE_SWAP" && partner && (() => {
+              const giveSel = form.give_secs || [];
+              const wantSel = form.want_secs || [];
+              const receiveOpts = partner.courses.filter((pc) => !myCourses.some((mc) => mc.course_id === pc.course_id));
+              const offered = Math.round(myCourses.filter((c) => giveSel.includes(c.section_id)).reduce((s, c) => s + (c.credits || 0), 0) * 10) / 10;
+              const wanted = Math.round(receiveOpts.filter((c) => wantSel.includes(c.section_id)).reduce((s, c) => s + (c.credits || 0), 0) * 10) / 10;
+              const tgl = (key, id) => set(key, (form[key] || []).includes(id) ? (form[key] || []).filter((x) => x !== id) : [...(form[key] || []), id]);
+              return (
+                <div className="space-y-4">
+                  <div>
+                    <Label className="tiny-label mb-2 block">Courses you OFFER (select one or more)</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {myCourses.map((c) => (<button type="button" key={c.section_id} data-testid={`give-chip-${c.course_code}`} onClick={() => tgl("give_secs", c.section_id)} className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${giveSel.includes(c.section_id) ? "bg-red-600 text-white border-red-600" : "bg-card hover:border-primary"}`}>{c.course_name} · {cr(c.credits)}cr</button>))}
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="tiny-label mb-2 block">Partner's courses you RECEIVE (select one or more)</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {receiveOpts.map((c) => (<button type="button" key={c.section_id} data-testid={`want-chip-${c.course_code}`} onClick={() => tgl("want_secs", c.section_id)} className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${wantSel.includes(c.section_id) ? "bg-emerald-600 text-white border-emerald-600" : "bg-card hover:border-primary"}`}>{c.course_name} · Sec {c.section_name} · {cr(c.credits)}cr</button>))}
+                    </div>
+                  </div>
+                  <div className={`text-sm rounded-md p-3 border ${offered === wanted && offered > 0 ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800"}`} data-testid="credit-balance">
+                    Offering <b>{offered}</b> credits · Receiving <b>{wanted}</b> credits {offered === wanted && offered > 0 ? "— balanced ✓ (you can combine e.g. two 0.5-credit courses for one 1-credit)" : "— totals must match"}
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label className="tiny-label">Partner's Course (you want)</Label>
-                  <Select value={form.want_course_id || ""} onValueChange={(v) => set("want_course_id", v)} disabled={!form.give_course_id}>
-                    <SelectTrigger data-testid="select-want-course"><SelectValue placeholder={form.give_course_id ? "Select partner's course you want" : "Select your offered course first"} /></SelectTrigger>
-                    <SelectContent>
-                      {wantOptions.map((c) => (<SelectItem key={c.course_id} value={c.course_id}>{c.course_name} — Sec {c.section_name} · {cr(c.credits)}</SelectItem>))}
-                    </SelectContent>
-                  </Select>
-                  {giveCourse && <p className="text-xs text-muted-foreground">Showing only {cr(giveCourse.credits)} courses you don't already have (no cross-credit swaps).</p>}
-                  {giveCourse && wantOptions.length === 0 && <p className="text-xs text-red-600">This partner has no matching {cr(giveCourse.credits)} course you can receive.</p>}
-                </div>
-              </>
-            )}
+              );
+            })()}
 
             {type === "SECTION_SWAP" && partner && (
               <div className="space-y-2">

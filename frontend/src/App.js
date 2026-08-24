@@ -13,6 +13,7 @@ import RequestDetail from "@/pages/student/RequestDetail";
 import Notifications from "@/pages/student/Notifications";
 import Profile from "@/pages/student/Profile";
 import StudentTimetable from "@/pages/student/StudentTimetable";
+import FullTimetable from "@/pages/student/FullTimetable";
 import TradingBoard from "@/pages/student/TradingBoard";
 
 import AdminDashboard from "@/pages/admin/AdminDashboard";
@@ -55,6 +56,7 @@ function AppRouter() {
       {/* Student */}
       <Route path="/dashboard" element={<Protected role="student"><StudentDashboard /></Protected>} />
       <Route path="/timetable" element={<Protected role="student"><StudentTimetable /></Protected>} />
+      <Route path="/timetable/all" element={<Protected role="student"><FullTimetable /></Protected>} />
       <Route path="/submit" element={<Protected role="student"><SubmitRequest /></Protected>} />
       <Route path="/trading" element={<Protected role="student"><TradingBoard /></Protected>} />
       <Route path="/requests" element={<Protected role="student"><MyRequests /></Protected>} />
