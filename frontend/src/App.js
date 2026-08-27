@@ -15,9 +15,11 @@ import Profile from "@/pages/student/Profile";
 import StudentTimetable from "@/pages/student/StudentTimetable";
 import FullTimetable from "@/pages/student/FullTimetable";
 import TradingBoard from "@/pages/student/TradingBoard";
+import ResolveClash from "@/pages/student/ResolveClash";
 
 import AdminDashboard from "@/pages/admin/AdminDashboard";
 import AdminRequests from "@/pages/admin/AdminRequests";
+import AdminClashes from "@/pages/admin/AdminClashes";
 import AdminSwaps from "@/pages/admin/AdminSwaps";
 import AdminTrading from "@/pages/admin/AdminTrading";
 import AdminCapacity from "@/pages/admin/AdminCapacity";
@@ -57,6 +59,7 @@ function AppRouter() {
       <Route path="/dashboard" element={<Protected role="student"><StudentDashboard /></Protected>} />
       <Route path="/timetable" element={<Protected role="student"><StudentTimetable /></Protected>} />
       <Route path="/timetable/all" element={<Protected role="student"><FullTimetable /></Protected>} />
+      <Route path="/resolve-clash" element={<Protected role="student"><ResolveClash /></Protected>} />
       <Route path="/submit" element={<Protected role="student"><SubmitRequest /></Protected>} />
       <Route path="/trading" element={<Protected role="student"><TradingBoard /></Protected>} />
       <Route path="/requests" element={<Protected role="student"><MyRequests /></Protected>} />
@@ -67,6 +70,7 @@ function AppRouter() {
       {/* Admin */}
       <Route path="/admin" element={<Protected role="admin"><AdminDashboard /></Protected>} />
       <Route path="/admin/requests" element={<Protected role="admin"><AdminRequests /></Protected>} />
+      <Route path="/admin/clashes" element={<Protected role="admin"><AdminClashes /></Protected>} />
       <Route path="/admin/swaps" element={<Protected role="admin"><AdminSwaps /></Protected>} />
       <Route path="/admin/trading" element={<Protected role="admin"><AdminTrading /></Protected>} />
       <Route path="/admin/capacity" element={<Protected role="admin"><AdminCapacity /></Protected>} />

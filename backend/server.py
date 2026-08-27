@@ -418,6 +418,7 @@ def build_reg(section_id, cmap, smap):
     s = smap.get(section_id) or {}
     c = cmap.get(s.get("course_id"), {})
     return {"course_id": s.get("course_id"), "section_id": section_id,
+            "course_code": c.get("course_code"),
             "course_name": c.get("course_name"), "section_name": s.get("section_name"),
             "credits": c.get("credits"), "day": s.get("day"), "time_slot": s.get("time_slot")}
 
@@ -506,6 +507,43 @@ async def compute_clash_note(pgpid, cmap, smap, new_section_id, exclude_course_i
     if clashes:
         return f"Time clash on {day} {ts} with: {', '.join(clashes)}."
     return None
+
+def mid_norm(m):
+    m = (m or "").upper()
+    if "PRE" in m or m == "$":
+        return "PRE"
+    if "POST" in m or m == "#":
+        return "POST"
+    return "FULL"
+
+def mids_overlap(a, b):
+    na, nb = mid_norm(a), mid_norm(b)
+    if na == "FULL" or nb == "FULL":
+        return True
+    return na == nb
+
+def is_timetabled(s):
+    return bool(s and s.get("day") and s.get("day") != "Not timetabled" and s.get("time_slot") and s.get("time_slot") != "—")
+
+async def detect_clashes(pgpid):
+    """Return real timetable clashes: >=2 enrolled sections in the same day+slot whose term-halves overlap."""
+    cmap, smap = await build_course_section_maps()
+    enrolls = await db.enrollments.find({"pgpid": pgpid}, {"_id": 0}).to_list(1000)
+    regs = []
+    for e in enrolls:
+        s = smap.get(e["section_id"])
+        if not is_timetabled(s):
+            continue
+        regs.append({**build_reg(e["section_id"], cmap, smap), "mid_tag": s.get("mid_tag")})
+    groups = {}
+    for i in range(len(regs)):
+        for j in range(i + 1, len(regs)):
+            a, b = regs[i], regs[j]
+            if a["day"] == b["day"] and a["time_slot"] == b["time_slot"] and mids_overlap(a["mid_tag"], b["mid_tag"]):
+                grp = groups.setdefault((a["day"], a["time_slot"]), {})
+                grp[a["section_id"]] = a
+                grp[b["section_id"]] = b
+    return [{"day": d, "time_slot": t, "courses": list(g.values())} for (d, t), g in groups.items()]
 
 @api_router.post("/student/requests")
 async def submit_request(payload: RequestInput, student=Depends(require_student)):
@@ -765,6 +803,120 @@ async def respond_swap(request_id: str, payload: SwapResponseInput, student=Depe
     await audit("SWAP_RESPONSE", pgpid, note, request_id)
     return {"ok": True, "status": req["status"]}
 
+# ---- Timetable clash resolution (always available, independent of request/trading windows) ----
+@api_router.get("/student/clashes")
+async def student_clashes(student=Depends(require_student)):
+    return {"clashes": await detect_clashes(student["pgpid"])}
+
+@api_router.get("/student/clash-options")
+async def clash_options(drop_section_id: str, student=Depends(require_student)):
+    """Eligible replacement courses/sections: not already held, valid, and clash-free after the drop. No capacity exposed."""
+    pgpid = student["pgpid"]
+    cmap, smap = await build_course_section_maps()
+    enrolls = await db.enrollments.find({"pgpid": pgpid}, {"_id": 0}).to_list(1000)
+    owned_courses = {e["course_id"] for e in enrolls}
+    drop_course_id = None
+    remaining = []
+    for e in enrolls:
+        if e["section_id"] == drop_section_id:
+            drop_course_id = e["course_id"]
+            continue
+        s = smap.get(e["section_id"]) or {}
+        if is_timetabled(s):
+            remaining.append(s)
+    if drop_course_id is None:
+        raise HTTPException(status_code=400, detail="You are not enrolled in the selected section.")
+    drop_credits = round(cmap.get(drop_course_id, {}).get("credits") or 0, 1)
+    result = []
+    for c in await db.courses.find({}, {"_id": 0}).to_list(1000):
+        if c["course_id"] in owned_courses:
+            continue
+        secs = []
+        for s in [x for x in smap.values() if x["course_id"] == c["course_id"]]:
+            clash = False
+            if is_timetabled(s):
+                for r in remaining:
+                    if r.get("day") == s.get("day") and r.get("time_slot") == s.get("time_slot") and mids_overlap(s.get("mid_tag"), r.get("mid_tag")):
+                        clash = True
+                        break
+            if not clash:
+                secs.append({"section_id": s["section_id"], "section_name": s["section_name"],
+                             "day": s.get("day"), "time_slot": s.get("time_slot"), "mid_tag": s.get("mid_tag")})
+        if secs:
+            result.append({"course_id": c["course_id"], "course_code": c["course_code"], "course_name": c["course_name"],
+                           "credits": c.get("credits"), "area": c.get("area"), "sections": sorted(secs, key=lambda x: x["section_name"])})
+    return {"drop_course_id": drop_course_id, "required_credits": drop_credits,
+            "courses": sorted(result, key=lambda x: x["course_name"])}
+
+class ClashResolveInput(BaseModel):
+    drop_section_id: str
+    preferences: List[List[str]] = []
+
+@api_router.post("/student/clash/resolve")
+async def resolve_clash(payload: ClashResolveInput, student=Depends(require_student)):
+    pgpid = student["pgpid"]
+    cmap, smap = await build_course_section_maps()
+    owned = await db.enrollments.find_one({"pgpid": pgpid, "section_id": payload.drop_section_id}, {"_id": 0})
+    if not smap.get(payload.drop_section_id) or not owned:
+        raise HTTPException(status_code=400, detail="You are not enrolled in the section you are trying to drop.")
+    clashes = await detect_clashes(pgpid)
+    target = next((cl for cl in clashes if any(cc["section_id"] == payload.drop_section_id for cc in cl["courses"])), None)
+    if not target:
+        raise HTTPException(status_code=400, detail="The selected section is not part of a timetable clash.")
+    dup = await db.requests.find_one({"student_pgpid": pgpid, "request_type": "CLASH_RESOLUTION",
+                                      "status": {"$nin": list(TERMINAL_STATUSES)},
+                                      "clash.slot.day": target["day"], "clash.slot.time_slot": target["time_slot"]}, {"_id": 0})
+    if dup:
+        raise HTTPException(status_code=409, detail="You already have an active clash-resolution request for this slot.")
+    if len(payload.preferences) < 2:
+        raise HTTPException(status_code=400, detail="Please provide at least two replacement preferences.")
+    drop_course_id = owned["course_id"]
+    drop_credits = round(cmap.get(drop_course_id, {}).get("credits") or 0, 1)
+    owned_courses = {e["course_id"] for e in await db.enrollments.find({"pgpid": pgpid}, {"_id": 0}).to_list(1000)}
+    remaining = [smap.get(e["section_id"]) or {} for e in await db.enrollments.find({"pgpid": pgpid}, {"_id": 0}).to_list(1000) if e["section_id"] != payload.drop_section_id]
+    pref_docs = []
+    for idx, sec_ids in enumerate(payload.preferences, start=1):
+        if not sec_ids:
+            raise HTTPException(status_code=400, detail=f"Preference {idx} is empty.")
+        items, seen, pref_slots, total = [], set(), [], 0.0
+        for sid in sec_ids:
+            s = smap.get(sid)
+            if not s:
+                raise HTTPException(status_code=400, detail="Invalid section selected.")
+            cid = s["course_id"]
+            cname = cmap.get(cid, {}).get("course_name", cid)
+            if cid in owned_courses:
+                raise HTTPException(status_code=400, detail=f"You already hold {cname}.")
+            if cid in seen:
+                raise HTTPException(status_code=400, detail="A preference cannot include the same course twice.")
+            seen.add(cid)
+            if is_timetabled(s):
+                for r in remaining:
+                    if r.get("day") == s.get("day") and r.get("time_slot") == s.get("time_slot") and mids_overlap(s.get("mid_tag"), r.get("mid_tag")):
+                        raise HTTPException(status_code=400, detail=f"{cname} (Sec {s['section_name']}) clashes with your existing timetable.")
+                for (pd, pt, pm) in pref_slots:
+                    if pd == s.get("day") and pt == s.get("time_slot") and mids_overlap(s.get("mid_tag"), pm):
+                        raise HTTPException(status_code=400, detail=f"Preference {idx}: the chosen courses clash with each other.")
+                pref_slots.append((s.get("day"), s.get("time_slot"), s.get("mid_tag")))
+            items.append({**build_reg(sid, cmap, smap), "mid_tag": s.get("mid_tag")})
+            total += cmap.get(cid, {}).get("credits") or 0
+        total = round(total, 1)
+        if total != drop_credits:
+            raise HTTPException(status_code=400, detail=f"Preference {idx} totals {total} credits but must equal the dropped course's {drop_credits} credits.")
+        pref_docs.append({"rank": idx, "items": items, "total_credits": total})
+    req = new_request_base(student, "CLASH_RESOLUTION", None)
+    req["clash"] = {
+        "slot": {"day": target["day"], "time_slot": target["time_slot"]},
+        "drop": {**build_reg(payload.drop_section_id, cmap, smap)},
+        "preferences": pref_docs,
+        "approved_rank": None,
+    }
+    add_history(req, "SUBMITTED", pgpid, "Clash resolution request submitted")
+    await db.requests.insert_one({**req})
+    await audit("CLASH_SUBMIT", pgpid, f"clash resolution for {target['day']} {target['time_slot']}", req["request_id"])
+    req.pop("_id", None)
+    return req
+
 # ------------------------------------------------------------------
 # Admin endpoints
 # ------------------------------------------------------------------
@@ -866,6 +1018,138 @@ async def admin_decision(request_id: str, payload: DecisionInput, admin=Depends(
     for t in targets:
         await db.notifications.insert_one({"notification_id": f"n_{uuid.uuid4().hex[:12]}", "pgpid": t, "type": "ADMIN_DECISION", "request_id": request_id, "message": f"Request {request_id} is now {req['status'].replace('_',' ').title()}.", "read": False, "created_at": iso(now_utc())})
     await audit("ADMIN_DECISION", admin["email"], f"{d} -> {req['status']}", request_id)
+    return {"ok": True, "status": req["status"]}
+
+# ---- Admin: timetable clash resolution queue ----
+async def notify_student(pgpid, request_id, message, ntype="ADMIN_DECISION"):
+    await db.notifications.insert_one({"notification_id": f"n_{uuid.uuid4().hex[:12]}", "pgpid": pgpid,
+                                       "type": ntype, "request_id": request_id, "message": message,
+                                       "read": False, "created_at": iso(now_utc())})
+
+@api_router.get("/admin/clashes")
+async def admin_clashes(admin=Depends(require_admin)):
+    reqs = await db.requests.find({"request_type": "CLASH_RESOLUTION"}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    return reqs
+
+@api_router.get("/admin/clash-tracker")
+async def admin_clash_tracker(admin=Depends(require_admin)):
+    """One-place overview of every timetable clash and whether it's resolved."""
+    from collections import defaultdict
+    cmap, smap = await build_course_section_maps()
+    enrolls = await db.enrollments.find({}, {"_id": 0}).to_list(100000)
+    students = {s["pgpid"]: s["name"] for s in await db.students.find({}, {"_id": 0}).to_list(20000)}
+    perstu = defaultdict(lambda: defaultdict(list))
+    for e in enrolls:
+        s = smap.get(e["section_id"])
+        if not is_timetabled(s):
+            continue
+        perstu[e["pgpid"]][(s["day"], s["time_slot"])].append(s)
+    current = {}
+    for pgpid, slots in perstu.items():
+        for (day, ts), secs in slots.items():
+            clashing = {}
+            for i in range(len(secs)):
+                for j in range(i + 1, len(secs)):
+                    if mids_overlap(secs[i].get("mid_tag"), secs[j].get("mid_tag")):
+                        clashing[secs[i]["section_id"]] = secs[i]
+                        clashing[secs[j]["section_id"]] = secs[j]
+            if clashing:
+                current[(pgpid, day, ts)] = [f"{cmap.get(s['course_id'], {}).get('course_name')} (Sec {s['section_name']})" for s in clashing.values()]
+    reqs = await db.requests.find({"request_type": "CLASH_RESOLUTION"}, {"_id": 0}).sort("created_at", 1).to_list(5000)
+    reqmap = {}
+    for r in reqs:
+        reqmap[(r["student_pgpid"], r["clash"]["slot"]["day"], r["clash"]["slot"]["time_slot"])] = r
+    entries = []
+    for k in set(current.keys()) | set(reqmap.keys()):
+        pgpid, day, ts = k
+        req = reqmap.get(k)
+        if k in current:
+            status = "IN_PROGRESS" if (req and req["status"] not in ("EXECUTED", "REJECTED")) else "UNRESOLVED"
+            courses = current[k]
+        else:
+            if not req:
+                continue
+            status = "RESOLVED"
+            courses = [f"Dropped {req['clash']['drop']['course_name']} (Sec {req['clash']['drop']['section_name']})"]
+        entries.append({
+            "pgpid": pgpid, "name": students.get(pgpid, pgpid), "day": day, "time_slot": ts,
+            "courses": courses, "status": status,
+            "request_id": req["request_id"] if req else None,
+            "request_status": req["status"] if req else None,
+        })
+    order = {"UNRESOLVED": 0, "IN_PROGRESS": 1, "RESOLVED": 2}
+    entries.sort(key=lambda x: (order.get(x["status"], 9), x["pgpid"]))
+    summary = {
+        "total": len(entries),
+        "unresolved": sum(1 for e in entries if e["status"] == "UNRESOLVED"),
+        "in_progress": sum(1 for e in entries if e["status"] == "IN_PROGRESS"),
+        "resolved": sum(1 for e in entries if e["status"] == "RESOLVED"),
+    }
+    return {"summary": summary, "entries": entries}
+
+class ClashApproveInput(BaseModel):
+    preference_rank: int
+    comment: Optional[str] = None
+
+class ClashCommentInput(BaseModel):
+    comment: Optional[str] = None
+
+@api_router.post("/admin/clashes/{request_id}/approve")
+async def admin_clash_approve(request_id: str, payload: ClashApproveInput, admin=Depends(require_admin)):
+    req = await db.requests.find_one({"request_id": request_id, "request_type": "CLASH_RESOLUTION"}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Clash request not found")
+    if req["status"] not in ("SUBMITTED", "UNDER_REVIEW"):
+        raise HTTPException(status_code=400, detail="This clash request can no longer be approved.")
+    if not any(p["rank"] == payload.preference_rank for p in req["clash"]["preferences"]):
+        raise HTTPException(status_code=400, detail="Invalid preference selected.")
+    req["clash"]["approved_rank"] = payload.preference_rank
+    req["admin_comment"] = payload.comment
+    add_history(req, "APPROVED_PENDING_EXECUTION", admin["email"], payload.comment or f"Approved preference {payload.preference_rank} — pending execution")
+    await db.requests.update_one({"request_id": request_id}, {"$set": {"status": req["status"], "clash": req["clash"], "admin_comment": req["admin_comment"], "updated_at": req["updated_at"], "history": req["history"]}})
+    await notify_student(req["student_pgpid"], request_id, f"Your clash-resolution request {request_id} was approved (preference {payload.preference_rank}) — pending execution.")
+    await audit("CLASH_APPROVE", admin["email"], f"approved preference {payload.preference_rank}", request_id)
+    return {"ok": True, "status": req["status"]}
+
+@api_router.post("/admin/clashes/{request_id}/reject")
+async def admin_clash_reject(request_id: str, payload: ClashCommentInput, admin=Depends(require_admin)):
+    req = await db.requests.find_one({"request_id": request_id, "request_type": "CLASH_RESOLUTION"}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Clash request not found")
+    if req["status"] in ("EXECUTED", "REJECTED"):
+        raise HTTPException(status_code=400, detail="This clash request is already closed.")
+    req["admin_comment"] = payload.comment
+    add_history(req, "REJECTED", admin["email"], payload.comment or "Rejected by admin")
+    await db.requests.update_one({"request_id": request_id}, {"$set": {"status": req["status"], "admin_comment": req["admin_comment"], "updated_at": req["updated_at"], "history": req["history"]}})
+    await notify_student(req["student_pgpid"], request_id, f"Your clash-resolution request {request_id} was rejected.")
+    await audit("CLASH_REJECT", admin["email"], "rejected clash resolution", request_id)
+    return {"ok": True, "status": req["status"]}
+
+@api_router.post("/admin/clashes/{request_id}/execute")
+async def admin_clash_execute(request_id: str, payload: ClashCommentInput, admin=Depends(require_admin)):
+    req = await db.requests.find_one({"request_id": request_id, "request_type": "CLASH_RESOLUTION"}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Clash request not found")
+    if req["status"] != "APPROVED_PENDING_EXECUTION":
+        raise HTTPException(status_code=400, detail="Only approved clash requests can be executed.")
+    rank = req["clash"].get("approved_rank")
+    pref = next((p for p in req["clash"]["preferences"] if p["rank"] == rank), None)
+    if not pref:
+        raise HTTPException(status_code=400, detail="Approved preference not found.")
+    pgpid = req["student_pgpid"]
+    drop = req["clash"]["drop"]
+    await db.enrollments.delete_one({"pgpid": pgpid, "course_id": drop["course_id"], "section_id": drop["section_id"]})
+    for item in pref["items"]:
+        existing = await db.enrollments.find_one({"pgpid": pgpid, "course_id": item["course_id"]}, {"_id": 0})
+        if existing:
+            await db.enrollments.update_one({"pgpid": pgpid, "course_id": item["course_id"]}, {"$set": {"section_id": item["section_id"]}})
+        else:
+            await db.enrollments.insert_one({"pgpid": pgpid, "course_id": item["course_id"], "section_id": item["section_id"]})
+    req["admin_comment"] = payload.comment
+    add_history(req, "EXECUTED", admin["email"], payload.comment or "Executed — enrollment updated, clash resolved")
+    await db.requests.update_one({"request_id": request_id}, {"$set": {"status": req["status"], "admin_comment": req["admin_comment"], "updated_at": req["updated_at"], "history": req["history"]}})
+    await notify_student(req["student_pgpid"], request_id, f"Your clash-resolution request {request_id} was executed — your timetable is updated.")
+    await audit("CLASH_EXECUTE", admin["email"], f"executed preference {rank}", request_id)
     return {"ok": True, "status": req["status"]}
 
 @api_router.get("/admin/students")

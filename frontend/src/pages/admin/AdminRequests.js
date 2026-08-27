@@ -23,7 +23,7 @@ export default function AdminRequests() {
   const [selected, setSelected] = useState(null);
   const [comment, setComment] = useState("");
 
-  const load = () => api.get("/admin/requests").then((r) => setReqs(r.data));
+  const load = () => api.get("/admin/requests").then((r) => setReqs(r.data.filter((x) => x.request_type !== "CLASH_RESOLUTION")));
   useEffect(() => { load(); }, []);
 
   const filtered = useMemo(() => reqs.filter((r) => {

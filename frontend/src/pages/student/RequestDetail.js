@@ -76,6 +76,24 @@ export default function RequestDetail() {
                 <p><span className="text-muted-foreground">Partner confirmation:</span> {req.swap.partner_confirmed === true ? "Accepted" : req.swap.partner_confirmed === false ? "Rejected" : "Pending"}</p>
               </div>
             )}
+            {req.clash && (
+              <div className="rounded-md bg-secondary p-4 text-sm space-y-2" data-testid="clash-detail">
+                <p><span className="text-muted-foreground">Clashing slot:</span> <span className="font-medium">{req.clash.slot.day} · {req.clash.slot.time_slot}</span></p>
+                <p><span className="text-muted-foreground">Dropping:</span> <span className="font-medium">{req.clash.drop.course_name} — Section {req.clash.drop.section_name}</span></p>
+                <div>
+                  <p className="text-muted-foreground mb-1">Replacement preferences:</p>
+                  <div className="space-y-1.5">
+                    {req.clash.preferences.map((p) => (
+                      <div key={p.rank} data-testid={`clash-pref-${p.rank}`} className={`rounded border p-2 ${req.clash.approved_rank === p.rank ? "border-emerald-300 bg-emerald-50" : "border-border"}`}>
+                        <span className="font-medium">Preference {p.rank}</span>
+                        {req.clash.approved_rank === p.rank && <span className="ml-2 text-xs text-emerald-700 font-medium">✓ Approved</span>}
+                        <span className="ml-2">{p.items.map((i) => `${i.course_name} (Sec ${i.section_name})`).join(" + ")}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
             {req.credit_note && <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">⚠ {req.credit_note}</p>}
             {req.clash_note && <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2" data-testid="detail-clash-note">⚠ {req.clash_note}</p>}
             {req.comment && <p className="text-sm"><span className="text-muted-foreground">Your comment:</span> {req.comment}</p>}

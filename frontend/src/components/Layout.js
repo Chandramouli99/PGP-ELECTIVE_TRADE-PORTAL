@@ -8,13 +8,14 @@ import { SupportContact } from "@/components/SupportContact";
 import {
   LayoutDashboard, FilePlus2, ListChecks, Bell, User, LogOut,
   Inbox, ArrowLeftRight, Users, GraduationCap, Layers, Gauge,
-  CalendarClock, ScrollText, UploadCloud, GitCompareArrows, CalendarDays, TrendingUp, Menu, Clock, Store, LayoutGrid,
+  CalendarClock, ScrollText, UploadCloud, GitCompareArrows, CalendarDays, TrendingUp, Menu, Clock, Store, LayoutGrid, AlertTriangle,
 } from "lucide-react";
 
 const STUDENT_NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/timetable", label: "Timetable", icon: CalendarDays },
   { to: "/timetable/all", label: "Full Timetable", icon: LayoutGrid },
+  { to: "/resolve-clash", label: "Resolve Clash", icon: AlertTriangle },
   { to: "/submit", label: "Submit Request", icon: FilePlus2 },
   { to: "/trading", label: "Trading Board", icon: Store },
   { to: "/requests", label: "My Requests", icon: ListChecks },
@@ -25,6 +26,7 @@ const STUDENT_NAV = [
 const ADMIN_NAV = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/admin/requests", label: "Requests", icon: Inbox },
+  { to: "/admin/clashes", label: "Clash Resolutions", icon: AlertTriangle },
   { to: "/admin/swaps", label: "Swaps", icon: GitCompareArrows },
   { to: "/admin/trading", label: "Trading Board", icon: Store },
   { to: "/admin/capacity", label: "Capacity", icon: Gauge },
@@ -37,7 +39,7 @@ const ADMIN_NAV = [
   { to: "/admin/audit", label: "Audit Log", icon: ScrollText },
 ];
 
-function SidebarContent({ nav, user, logout, unread, onNavigate }) {
+function SidebarContent({ nav, user, logout, unread, clashCount, onNavigate }) {
   return (
     <div className="h-full flex flex-col bg-primary text-primary-foreground">
       <div className="px-6 py-6 border-b border-white/10">
@@ -52,7 +54,10 @@ function SidebarContent({ nav, user, logout, unread, onNavigate }) {
       <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
         {nav.map((item) => {
           const Icon = item.icon;
-          const showBadge = item.to === "/notifications" && unread > 0;
+          const isNotif = item.to === "/notifications";
+          const isClash = item.to === "/resolve-clash" || item.to === "/admin/clashes";
+          const badgeVal = isNotif ? unread : isClash ? clashCount : 0;
+          const showBadge = badgeVal > 0;
           return (
             <NavLink
               key={item.to}
@@ -69,8 +74,8 @@ function SidebarContent({ nav, user, logout, unread, onNavigate }) {
               <Icon className="h-4 w-4" />
               <span className="flex-1">{item.label}</span>
               {showBadge && (
-                <span data-testid="notification-badge" className="min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-semibold flex items-center justify-center">
-                  {unread > 9 ? "9+" : unread}
+                <span data-testid={`nav-badge-${item.label.toLowerCase().replace(/[^a-z]+/g, "-")}`} className="min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-semibold flex items-center justify-center">
+                  {badgeVal > 9 ? "9+" : badgeVal}
                 </span>
               )}
             </NavLink>
@@ -118,6 +123,7 @@ export default function Layout({ children, title }) {
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
+  const [clashCount, setClashCount] = useState(0);
   const nav = user?.role === "admin" ? ADMIN_NAV : STUDENT_NAV;
 
   const fetchUnread = useCallback(() => {
@@ -125,17 +131,26 @@ export default function Layout({ children, title }) {
     api.get("/student/notifications/unread-count").then((r) => setUnread(r.data.count)).catch(() => {});
   }, [user]);
 
+  const fetchClash = useCallback(() => {
+    if (user?.role === "student") {
+      api.get("/student/clashes").then((r) => setClashCount((r.data.clashes || []).length)).catch(() => {});
+    } else if (user?.role === "admin") {
+      api.get("/admin/clashes").then((r) => setClashCount((r.data || []).filter((x) => !["EXECUTED", "REJECTED"].includes(x.status)).length)).catch(() => {});
+    }
+  }, [user]);
+
   useEffect(() => {
     fetchUnread();
-    const id = setInterval(fetchUnread, 30000);
+    fetchClash();
+    const id = setInterval(() => { fetchUnread(); fetchClash(); }, 30000);
     return () => clearInterval(id);
-  }, [fetchUnread]);
+  }, [fetchUnread, fetchClash]);
 
   return (
     <div className="min-h-screen bg-background lg:flex">
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex w-64 shrink-0 fixed h-screen z-30">
-        <SidebarContent nav={nav} user={user} logout={logout} unread={unread} />
+        <SidebarContent nav={nav} user={user} logout={logout} unread={unread} clashCount={clashCount} />
       </aside>
 
       <main className="flex-1 lg:ml-64">
@@ -149,7 +164,7 @@ export default function Layout({ children, title }) {
             <SheetContent side="left" className="p-0 w-72 border-0">
               <SheetTitle className="sr-only">Navigation</SheetTitle>
               <SheetDescription className="sr-only">Main navigation menu</SheetDescription>
-              <SidebarContent nav={nav} user={user} logout={logout} unread={unread} onNavigate={() => setOpen(false)} />
+              <SidebarContent nav={nav} user={user} logout={logout} unread={unread} clashCount={clashCount} onNavigate={() => setOpen(false)} />
             </SheetContent>
           </Sheet>
           <h1 className="text-base lg:text-xl font-semibold tracking-tight flex-1 truncate">{title}</h1>

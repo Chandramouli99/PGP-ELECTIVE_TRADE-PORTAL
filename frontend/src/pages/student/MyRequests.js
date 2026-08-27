@@ -17,6 +17,7 @@ export default function MyRequests() {
   }, []);
 
   const summarize = (r) => {
+    if (r.clash) return `Drop ${r.clash.drop.course_name} → ${r.clash.preferences.length} preference(s)`;
     if (r.swap) {
       const g = r.swap.initiator_gives || (r.swap.initiator_current ? [r.swap.initiator_current] : []);
       const t = r.swap.initiator_gets || (r.swap.initiator_requested ? [r.swap.initiator_requested] : []);

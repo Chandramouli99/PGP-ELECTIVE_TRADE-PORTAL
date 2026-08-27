@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import Layout from "@/components/Layout";
 import api from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CheckCircle2, AlertTriangle, GraduationCap } from "lucide-react";
 
@@ -14,13 +16,35 @@ const AREA_COLORS = {
 
 export default function StudentDashboard() {
   const [data, setData] = useState(null);
-  useEffect(() => { api.get("/student/dashboard").then((r) => setData(r.data)).catch(() => {}); }, []);
+  const [clashes, setClashes] = useState([]);
+  const navigate = useNavigate();
+  useEffect(() => {
+    api.get("/student/dashboard").then((r) => setData(r.data)).catch(() => {});
+    api.get("/student/clashes").then((r) => setClashes(r.data.clashes || [])).catch(() => {});
+  }, []);
   const win = data?.window;
 
   return (
     <Layout title="Dashboard">
       {data && (
         <div className="space-y-8">
+          {clashes.length > 0 && (
+            <div data-testid="clash-alert-banner" className="rounded-lg border border-red-300 bg-red-50 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex items-start gap-3 flex-1">
+                <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-semibold text-red-800">Timetable clash detected</p>
+                  <p className="text-sm text-red-700 mt-0.5">
+                    You have {clashes.length === 1 ? "a class" : `${clashes.length} classes`} scheduled in the same slot:{" "}
+                    {clashes.map((c) => `${c.courses.map((x) => x.course_name).join(" & ")} (${c.day} ${c.time_slot})`).join("; ")}. Please resolve it to fix your timetable.
+                  </p>
+                </div>
+              </div>
+              <Button data-testid="dashboard-resolve-clash-button" className="bg-red-600 hover:bg-red-700 shrink-0" onClick={() => navigate("/resolve-clash")}>
+                Resolve Clash
+              </Button>
+            </div>
+          )}
           <div>
             <h2 className="text-3xl font-semibold">Welcome, {data.name}</h2>
             <p className="text-muted-foreground mt-1">

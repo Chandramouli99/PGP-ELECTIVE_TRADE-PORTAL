@@ -1,0 +1,33 @@
+{
+  "summary": "Frontend UI E2E test of Timetable Clash Resolution feature. All primary user + admin flows work: clash-alert banner + resolve button on Dashboard, red clash banner + red-highlighted clash cell on Timetable, nav badge with count '1' for clash student, no capacity/strength exposed. Resolve Clash page (/resolve-clash) works even with request window closed. Selecting a drop choice reveals two preference cards; course-select/section-select/add-item + pref-total-N + add-preference-button + remove-pref-N all work. Submit button correctly stays DISABLED until >=2 preferences each total exactly the required credits, then submits successfully and redirects to /requests. Admin /admin/clashes shows tab-tracker + tab-requests, summary cards (track-total=5, unresolved=4, inprogress=0, resolved=0), and the tracker table with all 5 clashing students and status badges. Approve → Approved-Pending-Execution → Execute flow works; after execute the tracker transitioned to unresolved=4, inprogress=0, resolved=1 and VARAD AGRAWAL row shows Resolved. Regression smoke: admin /admin/trading loads (Clear All Cases only renders when cases exist — none currently posted); regular student stu_pgp41473 loads (redirected to Dashboard because request window is closed — expected).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ResolveClash.js (Step 1 drop cards)",
+        "issue": "data-testid renders as 'drop-choice-undefined' for both drop options because the code uses c.course_code but backend GET /api/student/clashes returns each course with course_id, section_id, course_name, section_name, credits, day, time_slot, mid_tag — no course_code field. Spec expected drop-choice-Fin.Tech / drop-choice-ACDM. Functionality works (order-based click), but the testid contract is broken and both testids collide.",
+        "selector": "[data-testid=\"drop-choice-undefined\"]",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "FIX: ResolveClash.js line 188 — change `drop-choice-${c.course_code}` to use a valid identifier from backend payload. Preferred: add course_code to the API payload of /api/student/clashes (in detect_clashes) so both drop cards get distinct testids like drop-choice-Fin.Tech / drop-choice-ACDM. Alternatively, use c.section_id as the testid suffix (drop-choice-<section_id>), but the spec explicitly expects the course code short name.",
+    "RESTORE CANONICAL STATE for PGP41173 (VARAD AGRAWAL): during testing I executed the clash-resolution request RAC4BB662, which DROPPED FINTECH (Sec A) and ADDED BIG DATA ANALYTICS (Sec B). To restore, re-enroll VARAD AGRAWAL in FINTECH section_id=section_739412b078 (Sec A) and remove BIG DATA ANALYTICS Sec B enrollment. This will bring back the ACDM×FINTECH Mon/Tue 14:30-16:00 clash and restore the total to 5 unresolved clashes."
+  ],
+  "critical_code_review_comments": [
+    "ResolveClash.js relies on a field (course_code) that backend does not return in /api/student/clashes — silent failure produced duplicate/undefined data-testids. Add a safety fallback and/or align backend payload.",
+    "Otherwise, Layout badge, timetable red highlight, PrefCard credit-sum validation, submit-disabled guard, admin two-step approve→execute, and tracker transitions all look solid."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped per request)", "frontend": "~97% (1 medium testid bug)"},
+  "test_credentials": "clash student cookie session_token=stu_clash; admin cookie session_token=admintest_session; regular student cookie session_token=stu_pgp41473",
+  "seed_data_creation": "Created and consumed clash-resolution request RAC4BB662 (VARAD AGRAWAL / PGP41173): Drop FINTECH → Pref1 BIG DATA ANALYTICS (Sec B), Pref2 CORPORATE ENTREPRENEURSHIP & INNOVATION (Sec A). Approved Pref1 and executed — enrollment mutated in DB.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Only remaining bug is cosmetic-but-spec-violating drop-choice-undefined testid. After main agent fixes the field name (add course_code to detect_clashes payload) and restores PGP41173's canonical enrollment (add FINTECH Sec A, remove BIG DATA ANALYTICS Sec B), retest: (1) both drop-choice-Fin.Tech and drop-choice-ACDM appear as distinct testids, (2) /admin/clash-tracker again shows 5 unresolved.",
+  "rca of the issue": "In /app/frontend/src/pages/student/ResolveClash.js line 188, testid is built from c.course_code. Backend detect_clashes() in /app/backend/server.py builds each course dict without a course_code key (only course_id, section_id, course_name, section_name, credits, day, time_slot, mid_tag). Result: template literal expands to 'drop-choice-undefined' on both cards. Reproduction: login as stu_clash → /resolve-clash → inspect the two drop buttons. Mitigation: (a) backend — include short course code (e.g. from the course document field 'code') in the course dict emitted by detect_clashes; (b) frontend — until then, temporarily fall back to `drop-choice-${c.course_code || c.section_id}` to avoid duplicate testids."
+}

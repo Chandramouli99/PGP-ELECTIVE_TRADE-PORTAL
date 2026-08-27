@@ -6,6 +6,7 @@ export const REQUEST_TYPE_LABELS = {
   ADD_DROP: "Add + Drop",
   COURSE_SWAP: "Course Swap",
   SECTION_SWAP: "Section Swap",
+  CLASH_RESOLUTION: "Clash Resolution",
 };
 
 export const STATUS_LABELS = {
