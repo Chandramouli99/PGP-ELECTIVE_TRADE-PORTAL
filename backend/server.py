@@ -1301,6 +1301,49 @@ async def admin_export_executed(admin=Depends(require_admin)):
     return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                              headers={"Content-Disposition": "attachment; filename=executed_changes.xlsx"})
 
+@api_router.get("/admin/export/master")
+async def admin_export_master(admin=Depends(require_admin)):
+    """Download the CURRENT master data (reflecting all executed changes) as a re-uploadable Term V workbook.
+    'Students by Section' is the live student-enrollment file."""
+    cmap, smap = await build_course_section_maps()
+    students = {s["pgpid"]: s for s in await db.students.find({}, {"_id": 0}).to_list(20000)}
+    enrolls = await db.enrollments.find({}, {"_id": 0}).to_list(100000)
+
+    wb = openpyxl.Workbook()
+    # Sheet 1 — Courses & Sections (course-level metadata; parsed from row 4, marker "Course" in col A)
+    ws1 = wb.active
+    ws1.title = "Courses & Sections"
+    ws1.append(["TERM V — COURSES & SECTIONS (latest export)"])
+    ws1.append([])
+    ws1.append(["Marker", "Short Code", "Long Code", "Course Name", "Professor", "Area", "Credits"])
+    for c in sorted(cmap.values(), key=lambda x: (x.get("course_code") or "")):
+        ws1.append(["Course", c.get("course_code"), c.get("long_code", ""), c.get("course_name"), "", c.get("area", ""), c.get("credits")])
+
+    # Sheet 2 — Students by Section (one row per enrollment; parsed from row 4)
+    ws2 = wb.create_sheet("Students by Section")
+    ws2.append(["TERM V — STUDENTS BY SECTION (latest enrollments export)"])
+    ws2.append([])
+    ws2.append(["Short Code", "Course Name", "Section", "Mid Tag", "Day", "Time Slot", "", "Registration Id", "Roll No", "Student Name", "Email", "Program"])
+    rows = []
+    for e in enrolls:
+        c = cmap.get(e["course_id"], {})
+        s = smap.get(e["section_id"], {})
+        st = students.get(e["pgpid"], {})
+        rows.append([c.get("course_code"), c.get("course_name"), s.get("section_name"), s.get("mid_tag"),
+                     s.get("day"), s.get("time_slot"), "", st.get("registration_id", ""), e["pgpid"],
+                     st.get("name", ""), st.get("email", ""), st.get("program", "")])
+    rows.sort(key=lambda r: (r[0] or "", r[2] or "", r[8] or ""))
+    for r in rows:
+        ws2.append(r)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    stamp = now_utc().strftime("%Y%m%d_%H%M")
+    await audit("EXPORT_MASTER", admin["email"], f"exported master data ({len(rows)} enrollment rows)")
+    return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": f"attachment; filename=master_data_latest_{stamp}.xlsx"})
+
 # ---- Master data import ----
 def read_upload_to_df(content: bytes, filename: str) -> pd.DataFrame:
     if filename.lower().endswith(".csv"):

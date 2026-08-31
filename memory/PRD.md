@@ -59,6 +59,10 @@ Secure request-collection & administration system for PGP course Add/Drop, Cours
 ## Update — 2026-08-23 (trading add = section-level)
 - Trading Board "want to add" is now section-level: each option is a course+section chip. Students can list a DIFFERENT section of a course they already hold (enables section-swap discovery); listing their exact current section is rejected. Board/admin views show add entries as "Course · Sec X". Stored as add_section_ids. Verified via API (post + 400 guard) and compile.
 
+## Update — 2026-06 (Download latest master data / enrollments)
+- Admin can download the CURRENT master workbook from the Master Data page ("Download Latest Master Data" — GET /admin/export/master). It reflects every executed swap, add/drop and clash resolution (live DB state).
+- Workbook has two sheets matching the uploaded Term V format so it is re-uploadable: "Courses & Sections" (course metadata) and "Students by Section" (the live student-enrollment file, one row per enrollment). Verified: 2664 enrollment rows / 46 courses, headers + column alignment match the importer exactly.
+
 ## Update — 2026-06 (Timetable Clash Resolution + admin Clash Tracker)
 - Clash detection (mid-aware): a real clash = two enrolled sections in the same day+time-slot whose term-halves overlap (pre-mid `$` vs post-mid `#` do NOT clash; full-term overlaps anything). Matches the uploaded workbook's "Action Items" sheet exactly — 5 students (ABM22032, ABM22036, PGP41438, PGP41506, PGP41173). Detection is dynamic (auto-resolves once fixed; no hardcoded list).
 - Student: red clash alert on Dashboard + red-highlighted slot on Weekly Timetable + nav "Resolve Clash" with badge. Dedicated /resolve-clash page (ALWAYS available, independent of request & trading windows): pick which clashing course to drop, then give ≥2 replacement preferences. Each preference must total exactly the dropped course's credits (credit-sum flexibility) and only clash-free, not-owned courses are offered. Does NOT consume normal Add/Drop quotas. Duplicate-per-slot guarded (409).

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { UploadCloud, CheckCircle2, AlertTriangle, Loader2, FileSpreadsheet } from "lucide-react";
+import { UploadCloud, CheckCircle2, AlertTriangle, Loader2, FileSpreadsheet, Download } from "lucide-react";
 
 const KINDS = [
   { id: "students", label: "Students", cols: "PGPID, Name, Email" },
@@ -62,9 +62,42 @@ export default function AdminImport() {
 
   const current = KINDS.find((k) => k.id === kind);
 
+  const [downloading, setDownloading] = useState(false);
+  const downloadMaster = async () => {
+    setDownloading(true);
+    try {
+      const res = await api.get("/admin/export/master", { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `master_data_latest_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Latest master data downloaded");
+    } catch { toast.error("Download failed"); }
+    finally { setDownloading(false); }
+  };
+
   return (
     <Layout title="Master Data Import">
       <div className="max-w-4xl space-y-6">
+        <Card className="shadow-sm border-primary/30" data-testid="download-master-card">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Download className="h-5 w-5 text-primary" /> Download Latest Master Data</CardTitle>
+            <CardDescription>
+              Download the <span className="font-medium">current</span> master workbook (Courses &amp; Sections + Students by Section).
+              The <span className="font-medium">Students by Section</span> sheet is your live enrollment file and reflects every executed
+              swap, add/drop and clash resolution. It is in the same format you uploaded, so it can be re-uploaded later.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={downloadMaster} disabled={downloading} data-testid="download-master-button" className="bg-primary hover:bg-primary/90">
+              {downloading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+              Download Latest Master Data (.xlsx)
+            </Button>
+          </CardContent>
+        </Card>
+
         <Card className="shadow-sm border-accent/40">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5 text-accent" /> Term V Consolidated Workbook (Recommended)</CardTitle>
