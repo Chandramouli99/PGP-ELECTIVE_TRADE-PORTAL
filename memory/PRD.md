@@ -59,6 +59,12 @@ Secure request-collection & administration system for PGP course Add/Drop, Cours
 ## Update — 2026-08-23 (trading add = section-level)
 - Trading Board "want to add" is now section-level: each option is a course+section chip. Students can list a DIFFERENT section of a course they already hold (enables section-swap discovery); listing their exact current section is rejected. Board/admin views show add entries as "Course · Sec X". Stored as add_section_ids. Verified via API (post + 400 guard) and compile.
 
+## Update — 2026-06 (Independent per-feature quotas + admin-controlled limits)
+- Request quotas are now INDEPENDENT per feature: Add, Drop, Add+Drop, Course Swap, Section Swap each have their own counter (Add+Drop no longer consumes Add/Drop). Defaults raised to 2 each.
+- Admin controls limits via GET/PUT /admin/request-limits (stored in settings key `request_limits`); UI card "Request Limits per Student" on the Request Window page. Rejected/withdrawn requests don't consume quota.
+- Priority note: submitting a 2nd+ request of the same type is accepted but returns/stores `priority_note` telling the student their first request is prioritised and this one may not be granted (shown as toast on submit + blue note on Request Detail). Enforcement returns 403 once the admin-set cap is reached.
+- Verified via curl: quota independence, GET/PUT limits, priority_note on 2nd request, 403 at limit; frontend compiles clean.
+
 ## Update — 2026-06 (Download latest master data / enrollments)
 - Admin can download the CURRENT master workbook from the Master Data page ("Download Latest Master Data" — GET /admin/export/master). It reflects every executed swap, add/drop and clash resolution (live DB state).
 - Workbook has two sheets matching the uploaded Term V format so it is re-uploadable: "Courses & Sections" (course metadata) and "Students by Section" (the live student-enrollment file, one row per enrollment). Verified: 2664 enrollment rows / 46 courses, headers + column alignment match the importer exactly.

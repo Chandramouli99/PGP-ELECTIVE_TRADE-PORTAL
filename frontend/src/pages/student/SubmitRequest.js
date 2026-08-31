@@ -55,14 +55,14 @@ export default function SubmitRequest() {
     SECTION_SWAP: quota.section_swap_used >= quota.section_swap_limit,
     ADD: quota.add_used >= quota.add_limit,
     DROP: quota.drop_used >= quota.drop_limit,
-    ADD_DROP: quota.add_used >= quota.add_limit || quota.drop_used >= quota.drop_limit,
+    ADD_DROP: quota.add_drop_used >= quota.add_drop_limit,
   } : {};
   const usageLabel = quota ? {
     COURSE_SWAP: `${quota.course_swap_used}/${quota.course_swap_limit} used`,
     SECTION_SWAP: `${quota.section_swap_used}/${quota.section_swap_limit} used`,
     ADD: `${quota.add_used}/${quota.add_limit} used`,
     DROP: `${quota.drop_used}/${quota.drop_limit} used`,
-    ADD_DROP: `Add ${quota.add_used}/${quota.add_limit} · Drop ${quota.drop_used}/${quota.drop_limit}`,
+    ADD_DROP: `${quota.add_drop_used}/${quota.add_drop_limit} used`,
   } : {};
 
   const projectedCredits = () => {
@@ -123,8 +123,9 @@ export default function SubmitRequest() {
       if (type === "ADD_DROP") { const c = myCourses.find((x) => x.course_id === form.drop_course_id); payload.drop_course_id = form.drop_course_id; payload.drop_section_id = c?.section_id; payload.add_course_id = form.add_course_id; payload.add_section_id = form.add_section_id; }
       if (type === "COURSE_SWAP") { payload.partner_pgpid = form.partner_pgpid; payload.give_section_ids = form.give_secs || []; payload.want_section_ids = form.want_secs || []; }
       if (type === "SECTION_SWAP") { const mine = myCourses.find((x) => x.course_id === form.swap_course_id); const pr = partner?.courses.find((x) => x.course_id === form.swap_course_id); payload.partner_pgpid = form.partner_pgpid; payload.swap_course_id = form.swap_course_id; payload.my_section_id = mine?.section_id; payload.requested_section_id = pr?.section_id; }
-      await api.post("/student/requests", payload);
+      const res = await api.post("/student/requests", payload);
       toast.success("Your request has been submitted successfully.");
+      if (res.data?.priority_note) toast.info(res.data.priority_note, { duration: 9000 });
       navigate("/requests");
     } catch (e) { toast.error(e?.response?.data?.detail || "Could not submit request"); }
     finally { setSubmitting(false); }

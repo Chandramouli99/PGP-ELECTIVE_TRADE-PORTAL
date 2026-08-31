@@ -439,6 +439,7 @@ def new_request_base(student, request_type, comment):    return {
         "swap": None,
         "credit_note": None,
         "clash_note": None,
+        "priority_note": None,
         "created_at": iso(now_utc()),
         "updated_at": iso(now_utc()),
         "history": [],
@@ -475,19 +476,32 @@ async def compute_credit_note(pgpid, cmap, add_course_id=None, drop_course_id=No
     return None
 
 QUOTA_EXCLUDE_STATUSES = {"REJECTED", "PARTNER_REJECTED", "CANCELLED"}
-REQUEST_LIMITS = {"add": 1, "drop": 1, "course_swap": 2, "section_swap": 2}
+DEFAULT_REQUEST_LIMITS = {"add": 2, "drop": 2, "add_drop": 2, "course_swap": 2, "section_swap": 2}
+
+async def get_request_limits():
+    doc = await db.settings.find_one({"key": "request_limits"}, {"_id": 0})
+    limits = dict(DEFAULT_REQUEST_LIMITS)
+    if doc and isinstance(doc.get("limits"), dict):
+        for k, v in doc["limits"].items():
+            if k in DEFAULT_REQUEST_LIMITS:
+                try:
+                    limits[k] = max(0, int(v))
+                except (TypeError, ValueError):
+                    pass
+    return limits
 
 async def get_request_quota(pgpid):
     reqs = await db.requests.find({"student_pgpid": pgpid, "status": {"$nin": list(QUOTA_EXCLUDE_STATUSES)}}, {"_id": 0, "request_type": 1}).to_list(1000)
     def n(t):
         return sum(1 for r in reqs if r["request_type"] == t)
-    add_used = n("ADD") + n("ADD_DROP")
-    drop_used = n("DROP") + n("ADD_DROP")
+    limits = await get_request_limits()
+    # Each feature is an independent counter (Add + Drop no longer shares with Add+Drop).
     return {
-        "add_used": add_used, "add_limit": REQUEST_LIMITS["add"],
-        "drop_used": drop_used, "drop_limit": REQUEST_LIMITS["drop"],
-        "course_swap_used": n("COURSE_SWAP"), "course_swap_limit": REQUEST_LIMITS["course_swap"],
-        "section_swap_used": n("SECTION_SWAP"), "section_swap_limit": REQUEST_LIMITS["section_swap"],
+        "add_used": n("ADD"), "add_limit": limits["add"],
+        "drop_used": n("DROP"), "drop_limit": limits["drop"],
+        "add_drop_used": n("ADD_DROP"), "add_drop_limit": limits["add_drop"],
+        "course_swap_used": n("COURSE_SWAP"), "course_swap_limit": limits["course_swap"],
+        "section_swap_used": n("SECTION_SWAP"), "section_swap_limit": limits["section_swap"],
     }
 
 async def compute_clash_note(pgpid, cmap, smap, new_section_id, exclude_course_id=None):
@@ -555,16 +569,16 @@ async def submit_request(payload: RequestInput, student=Depends(require_student)
     cmap, smap = await build_course_section_maps()
 
     q = await get_request_quota(pgpid)
-    if rtype == "ADD" and q["add_used"] >= q["add_limit"]:
-        raise HTTPException(status_code=403, detail="You have reached the limit of 1 Add request.")
-    if rtype == "DROP" and q["drop_used"] >= q["drop_limit"]:
-        raise HTTPException(status_code=403, detail="You have reached the limit of 1 Drop request.")
-    if rtype == "ADD_DROP" and (q["add_used"] >= q["add_limit"] or q["drop_used"] >= q["drop_limit"]):
-        raise HTTPException(status_code=403, detail="You have reached your Add/Drop request limit (1 each).")
-    if rtype == "COURSE_SWAP" and q["course_swap_used"] >= q["course_swap_limit"]:
-        raise HTTPException(status_code=403, detail="You have reached the limit of 2 Course Swap requests.")
-    if rtype == "SECTION_SWAP" and q["section_swap_used"] >= q["section_swap_limit"]:
-        raise HTTPException(status_code=403, detail="You have reached the limit of 2 Section Swap requests.")
+    quota_map = {
+        "ADD": (q["add_used"], q["add_limit"], "Add"),
+        "DROP": (q["drop_used"], q["drop_limit"], "Drop"),
+        "ADD_DROP": (q["add_drop_used"], q["add_drop_limit"], "Add + Drop"),
+        "COURSE_SWAP": (q["course_swap_used"], q["course_swap_limit"], "Course Swap"),
+        "SECTION_SWAP": (q["section_swap_used"], q["section_swap_limit"], "Section Swap"),
+    }
+    _used, _limit, _label = quota_map[rtype]
+    if _used >= _limit:
+        raise HTTPException(status_code=403, detail=f"You have reached the limit of {_limit} {_label} request(s).")
 
     async def owns(course_id, section_id):
         e = await db.enrollments.find_one({"pgpid": pgpid, "course_id": course_id, "section_id": section_id}, {"_id": 0})
@@ -575,6 +589,8 @@ async def submit_request(payload: RequestInput, student=Depends(require_student)
         return s is not None and s["course_id"] == course_id
 
     req = new_request_base(student, rtype, payload.comment)
+    if _used >= 1:
+        req["priority_note"] = f"You already have {_used} {_label} request(s). This additional request is accepted, but your first {_label} request will be prioritised — this one may not be granted."
 
     if rtype == "ADD":
         if not payload.add_course_id or not payload.add_section_id or not valid_section(payload.add_course_id, payload.add_section_id):
@@ -1151,6 +1167,24 @@ async def admin_clash_execute(request_id: str, payload: ClashCommentInput, admin
     await notify_student(req["student_pgpid"], request_id, f"Your clash-resolution request {request_id} was executed — your timetable is updated.")
     await audit("CLASH_EXECUTE", admin["email"], f"executed preference {rank}", request_id)
     return {"ok": True, "status": req["status"]}
+
+@api_router.get("/admin/request-limits")
+async def admin_get_request_limits(admin=Depends(require_admin)):
+    return await get_request_limits()
+
+class RequestLimitsInput(BaseModel):
+    add: int
+    drop: int
+    add_drop: int
+    course_swap: int
+    section_swap: int
+
+@api_router.put("/admin/request-limits")
+async def admin_set_request_limits(payload: RequestLimitsInput, admin=Depends(require_admin)):
+    limits = {k: max(0, int(v)) for k, v in payload.dict().items()}
+    await db.settings.update_one({"key": "request_limits"}, {"$set": {"limits": limits}}, upsert=True)
+    await audit("REQUEST_LIMITS", admin["email"], f"set per-student request limits {limits}")
+    return limits
 
 @api_router.get("/admin/students")
 async def admin_students(admin=Depends(require_admin)):

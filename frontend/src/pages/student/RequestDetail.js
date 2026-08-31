@@ -94,6 +94,7 @@ export default function RequestDetail() {
                 </div>
               </div>
             )}
+            {req.priority_note && <p className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded p-2" data-testid="detail-priority-note">ℹ {req.priority_note}</p>}
             {req.credit_note && <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">⚠ {req.credit_note}</p>}
             {req.clash_note && <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2" data-testid="detail-clash-note">⚠ {req.clash_note}</p>}
             {req.comment && <p className="text-sm"><span className="text-muted-foreground">Your comment:</span> {req.comment}</p>}

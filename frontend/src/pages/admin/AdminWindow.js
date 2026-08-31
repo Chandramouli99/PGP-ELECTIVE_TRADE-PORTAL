@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { CheckCircle2, Clock, Zap } from "lucide-react";
+import { CheckCircle2, Clock, Zap, SlidersHorizontal } from "lucide-react";
 
 function toLocalInput(iso) {
   if (!iso) return "";
@@ -30,12 +30,26 @@ export default function AdminWindow() {
   const [enabled, setEnabled] = useState(false);
   const [opens, setOpens] = useState("");
   const [closes, setCloses] = useState("");
+  const [limits, setLimits] = useState(null);
 
-  const load = () => api.get("/window").then((r) => {
-    setW(r.data); setEnabled(r.data.enabled);
-    setOpens(toLocalInput(r.data.opens_at)); setCloses(toLocalInput(r.data.closes_at));
-  });
+  const load = () => {
+    api.get("/window").then((r) => {
+      setW(r.data); setEnabled(r.data.enabled);
+      setOpens(toLocalInput(r.data.opens_at)); setCloses(toLocalInput(r.data.closes_at));
+    });
+    api.get("/admin/request-limits").then((r) => setLimits(r.data)).catch(() => {});
+  };
   useEffect(() => { load(); }, []);
+
+  const setLimitField = (k, v) => setLimits((l) => ({ ...l, [k]: v === "" ? "" : Math.max(0, parseInt(v, 10) || 0) }));
+  const saveLimits = async () => {
+    try {
+      const body = Object.fromEntries(Object.entries(limits).map(([k, v]) => [k, parseInt(v, 10) || 0]));
+      const { data } = await api.put("/admin/request-limits", body);
+      setLimits(data);
+      toast.success("Per-student request limits updated");
+    } catch (e) { toast.error(e?.response?.data?.detail || "Update failed"); }
+  };
 
   const put = async (body, msg) => {
     try {
@@ -104,6 +118,33 @@ export default function AdminWindow() {
             <Button onClick={saveCustom} className="bg-primary hover:bg-primary/90" data-testid="save-window-button">Save Window Settings</Button>
           </CardContent>
         </Card>
+
+        {limits && (
+          <Card className="shadow-sm" data-testid="request-limits-card">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2"><SlidersHorizontal className="h-4 w-4 text-primary" /> Request Limits per Student</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Each feature is counted independently — a student can use Add, Drop, and Add + Drop separately. Set how many of each a student may submit.
+                Students are told that only their first request of a type is prioritised.
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {[
+                  ["add", "Add"], ["drop", "Drop"], ["add_drop", "Add + Drop"],
+                  ["course_swap", "Course Swap"], ["section_swap", "Section Swap"],
+                ].map(([key, label]) => (
+                  <div key={key} className="space-y-1.5">
+                    <Label className="tiny-label">{label}</Label>
+                    <Input type="number" min="0" value={limits[key]} data-testid={`limit-input-${key}`}
+                      onChange={(e) => setLimitField(key, e.target.value)} />
+                  </div>
+                ))}
+              </div>
+              <Button onClick={saveLimits} className="bg-primary hover:bg-primary/90" data-testid="save-limits-button">Save Request Limits</Button>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </Layout>
   );
